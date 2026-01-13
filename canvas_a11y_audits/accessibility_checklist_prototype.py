@@ -1,6 +1,8 @@
 """Retrieve and combine data for a single course from both ally and canvas."""
 
 import sys
+import tomllib
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -48,84 +50,36 @@ _file_logger = logger.add(
     level="TRACE",
 )
 # =============================================================================
-# CONSTANTS - API Configuration
+# SET-UP
 # =============================================================================
-
-canvas_url = "https://boisestatecanvas.instructure.com/"
-canvas_token = (
-    "15177~HmTELDkkyAQTXctakDmUt9B3MKYKeWKYJVE36zumEJJZ6u8th9TKPwA3WBTMJ9F2"
-)
-canvas_columns = [
-    "id",
-    "folder_id",
-    "folder_id_date",
-    "display_name",
-    "filename",
-    "upload_status",
-    "content-type",
-    "url",
-    "size",
-    "created_at",
-    "created_at_date",
-    "updated_at",
-    "updated_at_date",
-    "unlock_at",
-    "locked",
-    "hidden",
-    "lock_at",
-    "hidden_for_user",
-    "thumbnail_url",
-    "modified_at",
-    "modified_at_date",
-    "mime_class",
-    "media_entry_id",
-    "category",
-    "locked_for_user",
-    "visibility_level",
-    "size_date",
-]
-drop_canvas_columns = ["_requester"]
-drop_joint_columns = [
-    "upload_status",
-    "size",
-    "created_at",
-    "created_at_date",
-    "updated_at",
-    "updated_at_date",
-    "unlock_at",
-    "locked",
-    "lock_at",
-    "hidden_for_user",
-    "modified_at",
-    "modified_at_date",
-    "media_entry_id",
-    "locked_for_user",
-    "Deleted at",
-    "Url",
-    "visibility_level",
-    "size_date",
-    "category",
-]
-
-ally_region = "prod.ally.ac"
-ally_client_id = "11637"
-ally_bearer_token = "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyIjp7InJvbGUiOiJBbGx5Q291cnNlUmVwb3J0QXBpVXNlciIsIm5hbWUiOiI8Pjw-IiwiY2xpZW50SWQiOjExNjM3LCJ1c2VySWQiOiItMSJ9LCJleHAiOjE3OTk2NDQ5NjMsImlhdCI6MTc2ODEwODk2M30.ZhwWla72CNEvLg8v_1DwyD1XlvMVaC-xuFss9H-cgNM"
-ally_key = "HA41OiNhgkYSDAqHohaF4ZVCzeeywf0o"
-ally_secret = "QNq1PwOFUbww0omh3IgTIwJcU00gEKHg"
-course_id = 31318
+PROJECT_ROOT = Path(__file__).parent.parent
+config_file = PROJECT_ROOT / "config.toml"
 
 
 # =============================================================================
 # FUNCTIONS
 # =============================================================================
+@logger.catch()
+def load_config(config_path=config_file) -> dict:
+    """Parse toml file containing configuration and data schema rules.
+
+    Return:
+    Dictionary containing all rules, equivalencies, and configuration settings.
+
+    """
+    try:
+        with Path(config_path).open("rb") as f:
+            return tomllib.load(f)
+    except FileNotFoundError:
+        logger.exception(f"Config file {config_path} not found.")
+        return {}
+
+
 @logger.catch(
     message="Failed to fetch Canvas course content. See traceback for details.",
 )
 def fetch_canvas_course(
-    canvas_url: str,
-    canvas_token: str,
-    course_id: int,
-    drop_cols: list[str] = ["_requester"],
+    config_dict,
     dtypebackend: str = "pyarrow",
 ) -> DataFrame:
     """Download canvas course info and load it into a Pandas DataFrame.
@@ -149,10 +103,17 @@ def fetch_canvas_course(
         A pandas DataFrame
 
     """
+    canvas_url = config_dict.get("canvas").get("url")
+    canvas_token = config_dict.get("canvas").get("token")
+    drop_cols = config_dict.get("canvas").get("drop_columns")
+
     logger.info("Initializing Canvas object...")
     canvas: Canvas = Canvas(canvas_url, canvas_token)
+
     logger.info("Fetching course site data...")
+    course_id = config_dict.get("course_id")
     course: Course = canvas.get_course(course_id)
+
     logger.info("Fetching course files data...")
     course_files: PaginatedList[File] = course.get_files()
 
@@ -254,16 +215,25 @@ def create_csv(df: DataFrame) -> None:
     )
 
 
-# =============================================================================
-# EXECUTION - Orchestrator
-# =============================================================================
-if __name__ == "__main__":
-    canvas_df = fetch_canvas_course(canvas_url, canvas_token, course_id)
+@logger.catch()
+def main(config_path: Path = config_file) -> str:
+    """Orchestrate the retrieval and combining of Ally and Canvas data."""
+    config = load_config(config_path)
+    canvas_df = fetch_canvas_course(config)
     ally_df = create_ally_df(
         "/Users/harkmorper/Downloads/ally-31318-OPPrimary_-_SOCWRK_526_-_The_Evaluation_and_Treatment_of_Mental_Disorders_-2026-01-12-15-11.csv",
     )
+    drop_joint_columns = config.get("joint").get("drop_columns")
     joint_df = join_data_sources(canvas_df, ally_df, drop_joint_columns)
     create_csv(joint_df)
     success_message = "Congratulations! DataFrame written to CSV!"
     logger.success(success_message)
+    return success_message
+
+
+# =============================================================================
+# EXECUTION - Orchestrator
+# =============================================================================
+if __name__ == "__main__":
+    success_message = main()
     print(success_message)

@@ -1,0 +1,36 @@
+course_id = "31318"
+
+[canvas]
+url = "https://boisestatecanvas.instructure.com/"
+token = "15177~HmTELDkkyAQTXctakDmUt9B3MKYKeWKYJVE36zumEJJZ6u8th9TKPwA3WBTMJ9F2"
+drop_columns = ["_requester"]
+
+[ally]
+region = "prod.ally.ac"
+client_id = "11637"
+bearer_token = "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyIjp7InJvbGUiOiJBbGx5Q291cnNlUmVwb3J0QXBpVXNlciIsIm5hbWUiOiI8Pjw-IiwiY2xpZW50SWQiOjExNjM3LCJ1c2VySWQiOiItMSJ9LCJleHAiOjE3OTk2NDQ5NjMsImlhdCI6MTc2ODEwODk2M30.ZhwWla72CNEvLg8v_1DwyD1XlvMVaC-xuFss9H-cgNM"
+key = "HA41OiNhgkYSDAqHohaF4ZVCzeeywf0o"
+secret = "QNq1PwOFUbww0omh3IgTIwJcU00gEKHg"
+
+[joint]
+drop_columns = [
+    "upload_status",
+    "size",
+    "created_at",
+    "created_at_date",
+    "updated_at",
+    "updated_at_date",
+    "unlock_at",
+    "locked",
+    "lock_at",
+    "hidden_for_user",
+    "modified_at",
+    "modified_at_date",
+    "media_entry_id",
+    "locked_for_user",
+    "Deleted at",
+    "Url",
+    "visibility_level",
+    "size_date",
+    "category"
+]
