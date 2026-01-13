@@ -1,0 +1,37 @@
+[project]
+name = "canvas-a11y-audits"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "canvasapi>=3.4.0",
+    "loguru>=0.7.3",
+    "numpy>=2.3.5",
+    "pandas>=2.3.3",
+    "pyarrow>=22.0.0",
+    "requests>=2.32.5",
+    "ruff>=0.14.11"
+]
+
+[dependency-groups]
+dev = [
+    "marimo>=0.19.2",
+    "pandas-stubs>=2.3.3.251219"
+]
+lint = [
+    "ruff>=0.14.11"
+]
+
+[tool.ruff]
+ignore = [
+"RET505",
+"RET504",
+"RET506",
+"ERA001"
+]
+
+[tool.ruff.lint]
+# Configure pydocstyle settings within the lint section
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
