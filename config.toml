@@ -34,3 +34,50 @@ drop_columns = [
     "size_date",
     "category"
 ]
+
+# [content_types]
+# "wordprocessingml.document" = "Word Document"
+# "spreadsheetml.sheet" = "Excel Spreadsheet"
+# "presentationml.presentation" = "PowerPoint Presentation"
+# "application/pdf" = "PDF Document"
+# "text/html" = "HTML Document"
+# "application/zip" = "ZIP Archive"
+# "application/x-zip-compressed" = "ZIP Archive"
+# full_mime_type.startswith("image/") = "Image"
+# full_mime_type.startswith("audio/") = "Audio"
+# full_mime_type.startswith("video/") = "Video"
+# full_mime_type.startswith("text/") = "Text Document"
+# full_mime_type.startswith("application/"):
+#         return full_mime_type.split('/')[-1].replace('.', ' ').replace('-', ' ').title() + " File"
+
+
+[content_types]
+[content_types.Pages]
+method = "get_pages"
+html_field = "body"
+title_field = "title"
+keyword_params = { include = ["body"] }
+
+[content_types.Files]
+method = "get_files"
+html_field = "N/A"
+title_field = "display_name"
+keyword_params = {}  # TOML supports inline dictionaries!
+
+[content_types.Assignments]
+method = "get_assignments"
+html_field = "description"
+title_field = "name"
+keyword_params = {}
+
+[content_types.Discussions]
+method = "get_discussion_topics"
+html_field = "message"
+title_field = "title"
+keyword_params = {}
+
+[content_types.Quizzes]
+method = "get_quizzes"
+html_field = "description"
+title_field = "title"
+keyword_params = {}

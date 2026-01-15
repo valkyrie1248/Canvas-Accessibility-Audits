@@ -354,7 +354,39 @@ def _(canvas_token, canvas_url, course_id, fetch_canvas_course):
 
 
 @app.cell
-def _():
+def _(Canvas, canvas_df, canvas_token, canvas_url, course_id):
+    canvas = Canvas(canvas_url, canvas_token)
+    course = canvas.get_course(course_id)
+    for col in canvas_df.columns:
+        print(col)
+    print(len(canvas_df.columns))
+    files= course.get_files()
+    for f in files[0].__dict__:
+        print(f)
+    len(files[0].__dict__)
+    return (course,)
+
+
+@app.cell
+def _(course):
+    pages = course.get_pages()
+    for page in pages:
+        print(page.__dict__)
+    for item in pages[0].__dict__:
+        print(item)
+    pages[0].__dict__.get("hide_from_students")
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""
+    for fi in files[0].__dict__:
+        print(fi)
+    print("============================")
+    for p in pages[0].__dict__:
+        print(p)
+    """)
     return
 
 
