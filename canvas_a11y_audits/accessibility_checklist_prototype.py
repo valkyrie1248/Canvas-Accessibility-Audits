@@ -3,6 +3,8 @@
 import sys
 import tomllib
 import datetime
+import time
+import requests
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -11,6 +13,7 @@ from canvasapi import Canvas
 from bs4 import BeautifulSoup
 from loguru import logger
 from pandas.core.frame import DataFrame
+from playwright.sync_api import sync_playwright
 
 if TYPE_CHECKING:
     from canvasapi.course import Course
@@ -111,7 +114,7 @@ def initialize_canvas_course(config_dict) -> DataFrame:
 
 
 @logger.catch()
-def fetch_course_content(course:Course, config: dict):
+def fetch_course_content(course:Course, config_dict: dict):
     '''
     Retrieve Canvas course data from Canvas API for all types listed in config.
 
@@ -137,7 +140,7 @@ def fetch_course_content(course:Course, config: dict):
     '''
     # TODO Add try/except loop, Finish docstring.
     course_content_dict = {}
-    config_content_types = config.get("content_types")
+    config_content_types = config_dict.get("content_types")
     for content_type, params in config_content_types.items():
         logger.info(f"Fetching Canvas {content_type}")
         fetch_method = getattr(course, params["method"])
@@ -395,6 +398,215 @@ def create_canvas_data_df(
     return canvas_df
 
 
+# =============================================================================
+# ALLY REPORT DOWNLOAD FUNCTIONS
+# =============================================================================
+logger.catch("There was an error getting the session cookie: ")
+def get_ally_session_cookie(config_dict: dict) -> str:
+    """
+    Navigate to the Ally report page, log in via LTI Key/Secret, and retrieve the session cookie.
+
+    Parameters
+    ----------
+    config : dict
+        Dictionary containing configuration settings. Must include an 'ally'
+        section with 'key' and 'secret' fields.
+
+    Returns
+    -------
+    cookie_string : str
+        The formatted session cookie string required for API requests
+        (e.g., "session-11637=abc12345").
+
+    Raises
+    ------
+    ValueError
+        If 'key' or 'secret' are missing from the configuration.
+        If the session cookie is not found after the login attempt.
+    """
+    # 1. Retrieve credentials
+    ally_config = config_dict.get("ally", {})
+    key = ally_config.get("key")
+    secret = ally_config.get("secret")
+
+    if not key or not secret:
+        raise ValueError("Missing 'key' or 'secret' in the [ally] section of your config.")
+
+    target_url = "https://prod.ally.ac/report/11637"
+
+    with sync_playwright() as p:
+        # Launch browser (set to False to debug visually)
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context()
+        page = context.new_page()
+
+        # 2. Navigate and Login
+        page.goto(target_url)
+
+        # Selectors based on your provided HTML
+        page.fill('#key', key)
+        page.fill('#secret', secret)
+        page.click('button[type="submit"]')
+
+        # 3. Wait/Poll for Cookie
+        # Loop for up to 10 seconds checking for the cookie
+        ally_cookie = None
+        logger.info("Waiting for session cookie...")
+
+        for _ in range(10):
+            cookies = context.cookies()
+            ally_cookie = next(
+                (c for c in cookies if "ally.ac" in c["domain"] and "session" in c["name"]),
+                None
+            )
+            if ally_cookie:
+                break
+            time.sleep(1)
+
+        browser.close()
+
+        if ally_cookie:
+            success_message = f"{ally_cookie['name']}={ally_cookie['value']}"
+            logger.success(success_message)
+            return success_message
+        else:
+            raise ValueError("Failed to retrieve Ally session cookie. Check Key/Secret credentials.")
+
+
+@logger.catch()
+def trigger_ally_export(course_id: str, config_dict: dict, cookie_string:str) -> str:
+    """Trigger the Ally CSV export via API and retrieve the S3 download URL.
+
+    Parameters
+    ----------
+    course_id : str
+        The Canvas course ID.
+    config : dict
+        Configuration dictionary containing 'ally' settings (client_id, token, cookie_string).
+
+    Returns
+    -------
+    str
+        The signed S3 URL for the requested report.
+
+    Raises
+    ------
+    requests.HTTPError
+        If the API call fails or times out after retries.
+    KeyError
+        If the response does not contain the expected 'url'.
+    """
+    ally_config = config_dict.get("ally", {})
+    region = ally_config.get("region")
+    client_id = ally_config.get("client_id")
+    token = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M")
+
+    if not all([client_id, token, cookie_string]):
+        raise ValueError("Missing Ally configuration parameters (client_id or cookie_string).")
+
+    base_url = f"https://{region}/api/v1/{client_id}/reports/courses/{course_id}/csv"
+    params = {"token": token}
+    headers = {"Cookie": cookie_string}
+
+    logger.info(f"Triggering Ally report export for course {course_id} (Token: {token})...")
+
+    retries = 3
+    for attempt in range(retries):
+        response = requests.get(base_url, params=params, headers=headers)
+
+        if response.status_code == 200:
+            logger.success("Ally report is ready.")
+            data = response.json()
+            return data["url"]
+
+        elif response.status_code == 202:
+            logger.info(f"Report processing (202). Retrying in 5 seconds... ({attempt + 1}/{retries})")
+            time.sleep(5)
+            continue
+
+        else:
+            response.raise_for_status()
+
+    raise requests.exceptions.Timeout(f"Ally report processing timed out after {retries} retries.")
+
+
+@logger.catch()
+def download_s3_file(s3_url: str, course_id: str, download_dir: str) -> Path:
+    """Download the file from the S3 URL to the specified directory.
+
+    Parameters
+    ----------
+    s3_url : str
+        The signed S3 URL.
+    course_id : str
+        The Canvas course ID (used for naming the file).
+    download_dir : str
+        Directory to save the file.
+
+    Returns
+    -------
+    Path
+        Path object pointing to the downloaded CSV file.
+
+    Raises
+    ------
+    ValueError
+        If the downloaded file is suspicious (e.g., too small/XML error).
+    """
+    date_time = datetime.datetime.now().strftime("%Y%m%d%H%M")
+    save_path = Path(download_dir)
+    save_path.mkdir(parents=True, exist_ok=True)
+    file_path = save_path / f"ally_{course_id}_{date_time}.csv"
+
+    logger.info(f"Downloading S3 file to {file_path}...")
+
+    # S3 signed URLs generally shouldn't have extra headers like cookies
+    headers = {"User-Agent": "Mozilla/5.0"}
+
+    with requests.get(s3_url, headers=headers, stream=True) as r:
+        r.raise_for_status()
+        with open(file_path, 'wb') as f:
+            for chunk in r.iter_content(chunk_size=8192):
+                f.write(chunk)
+
+    # Data Integrity Check
+    file_size = file_path.stat().st_size
+    if file_size <= 1000:
+        logger.error(f"Downloaded file is suspiciously small ({file_size} bytes). Likely an S3 XML error.")
+        raise ValueError("Downloaded file integrity check failed (size < 1000 bytes).")
+
+    logger.success(f"Successfully downloaded Ally report: {file_path} ({file_size} bytes)")
+    return file_path
+
+
+@logger.catch()
+def get_ally_report(course_id: str, config_dict: dict) -> Path:
+    """Orchestrator to trigger export and download the Ally report.
+
+    Parameters
+    ----------
+    course_id : str
+        The Canvas course ID.
+    config : dict
+        Configuration dictionary.
+
+    Returns
+    -------
+    Path
+        The path to the valid downloaded CSV report.
+    """
+    logger.info(f"Starting Ally report retrieval for Course ID: {course_id}")
+
+    # Get download directory from config or default
+    download_dir = config_dict.get("ally", {}).get("download_dir", "./downloads/ally_reports")
+    session_cookie = get_ally_session_cookie(config_dict)
+
+    s3_url = trigger_ally_export(course_id, config_dict, session_cookie)
+    csv_path = download_s3_file(s3_url, course_id, download_dir)
+
+    return csv_path
+
+
 @logger.catch(
     message="Failed to load ally DataFrame. See traceback for details.",
 )
@@ -501,9 +713,10 @@ def join_data_sources(
     message="Failed to write {df} to CSV. See trackeback for details.",
 )
 def create_csv(df: DataFrame) -> None:
+    date_time = datetime.datetime.now().strftime("%Y%m%d%H%M")
     df.loc[df["Score"].notna(),"Score"] = df.loc[df["Score"].notna(),"Score"] * 100
     return df.to_csv(
-        "accessibility_review.csv",
+        f"accessibility_review_{date_time}.csv",
         na_rep="",
         mode="x",
         float_format="%.2f",
@@ -532,9 +745,16 @@ def main(config_path: Path = config_file) -> str:
             content_type_a11y_issues = parse_html_content(html_string,course_id,content_type,content_name,"URL_PLACEHOLDER")
             potential_a11y_issues.extend(content_type_a11y_issues)
     canvas_df = create_canvas_data_df(config,course_file_data,potential_a11y_issues)
+
+    try:
+        ally_csv_path = get_ally_report(course_id, config)
+    except Exception as e:
+        logger.error(f"Failed to download Ally report: {e}")
+        return "Process failed during Ally report download."
     ally_df = create_ally_df(
         "/Users/harkmorper/Downloads/ally-43754-Fa25_-_COUN_549_-_Motivational_Interviewing-2026-01-15-17-55.csv",
     ).pipe(clean_ally_df, config_dict=config)
+
     drop_joint_columns = config.get("joint").get("drop_columns")
     joint_df = join_data_sources(canvas_df, ally_df, drop_joint_columns)
     create_csv(joint_df)

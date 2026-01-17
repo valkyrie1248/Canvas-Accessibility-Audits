@@ -39,6 +39,9 @@ def _():
     extract_html,
     parse_html_content,
     create_canvas_data_df,
+    trigger_ally_export,
+    download_s3_file,
+    get_ally_report,
     create_ally_df,
     clean_ally_df,
     join_data_sources,
@@ -226,10 +229,62 @@ def _():
 
 
 @app.cell
-def _():
-    # ally_df = create_ally_df("/Users/harkmorper/Downloads/ally-31318-OPPrimary_-_SOCWRK_526_-_The_Evaluation_and_Treatment_of_Mental_Disorders_-2026-01-12-15-11.csv")
-    # ally_df = ally_df.rename(columns={"Name": "display_name"})
-    # ally_df
+def _(config, logger):
+    from playwright.sync_api import sync_playwright
+
+    logger.catch("There was an error getting the session cookie: ")
+    def get_ally_session_cookie(config: dict) -> str:
+        """
+        Logs into the Ally Institutional Report via LTI Key/Secret and retrieves the session cookie.
+        """
+        # 1. Retrieve credentials
+        ally_config = config.get("ally", {})
+        key = ally_config.get("key")
+        secret = ally_config.get("secret")
+    
+        if not key or not secret:
+            raise ValueError("Ally Key and Secret must be present in the config.")
+
+        target_url = "https://prod.ally.ac/report/11637"
+
+        with sync_playwright() as p:
+            # Launch browser
+            browser = p.chromium.launch(headless=False)
+            context = browser.new_context()
+            page = context.new_page()
+
+            # 2. Navigate
+            page.goto(target_url)
+
+            # 3. Fill Credentials (Selectors based on your HTML)
+            # HTML: <input ... id="key">
+            page.fill('#key', key)
+        
+            # HTML: <input ... id="secret">
+            page.fill('#secret', secret)
+
+            # 4. Submit
+            # HTML: <button type="submit" ...>Sign in</button>
+            page.click('button[type="submit"]')
+        
+            # Wait for the report to load (Angular app)
+            page.wait_for_load_state("networkidle")
+
+            # 5. Extract Cookie
+            cookies = context.cookies()
+            ally_cookie = next(
+                (c for c in cookies if "ally.ac" in c["domain"] and "session" in c["name"]), 
+                None
+            )
+
+            browser.close()
+
+            if ally_cookie:
+                return f"{ally_cookie['name']}={ally_cookie['value']}"
+            else:
+                raise ValueError("Failed to retrieve Ally session cookie. Check Key/Secret credentials.")
+
+    get_ally_session_cookie(config)
     return
 
 

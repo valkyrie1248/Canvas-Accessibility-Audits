@@ -15,3 +15,5 @@
 - Feat: Add pydantic data validation
 - Make storing of tokens more secure
 - Chore: Clean up logging outputs.
+- Feat: Change output name to accessibility*review*{course number}
+  - Feat: place in: path / "{department*prefix}" / "{course name}*{course_number}"
