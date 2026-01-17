@@ -534,7 +534,7 @@ def main(config_path: Path = config_file) -> str:
     canvas_df = create_canvas_data_df(config,course_file_data,potential_a11y_issues)
     ally_df = create_ally_df(
         "/Users/harkmorper/Downloads/ally-43754-Fa25_-_COUN_549_-_Motivational_Interviewing-2026-01-15-17-55.csv",
-    ).pipe(clean_ally_df)
+    ).pipe(clean_ally_df, config_dict=config)
     drop_joint_columns = config.get("joint").get("drop_columns")
     joint_df = join_data_sources(canvas_df, ally_df, drop_joint_columns)
     create_csv(joint_df)
