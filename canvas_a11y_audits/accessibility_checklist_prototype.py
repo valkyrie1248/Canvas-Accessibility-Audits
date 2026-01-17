@@ -65,7 +65,8 @@ config_file = PROJECT_ROOT / "config.toml"
 def load_config(config_path=config_file) -> dict:
     """Parse toml file containing configuration and data schema rules.
 
-    Return:
+    Returns
+    -------
     Dictionary containing all rules, equivalencies, and configuration settings.
 
     """
@@ -242,7 +243,7 @@ def parse_html_content(html_string, course_id, content_type, content_name, conte
         _description_
     content_name: _type_
         _description_
-   content_url: _type_
+    content_url: _type_
         _description_
 
     Returns
@@ -391,7 +392,6 @@ def create_canvas_data_df(
         )
     # canvas_df = canvas_df.drop(drop_cols,axis=columns) I think this is now not needed.
     logger.debug(canvas_df.shape)
-    logger.debug(canvas_df.info())
     return canvas_df
 
 
@@ -435,11 +435,31 @@ def create_ally_df(
     # ally_df=ally_df.set_index("id")
     if show_deleted == True:
         logger.debug(ally_df.shape)
-        logger.debug(ally_df.info())
         return ally_df
     logger.debug(f"shape of ally_df = {ally_df.shape}")
-    logger.debug(f"ally_df info : {ally_df.info()}")
     return ally_df.loc[ally_df["Deleted at"].isna()]
+
+
+# This function condenses the ally_df dummy columns to a single "Flags" column.
+@logger.catch()
+def clean_ally_df(ally_df:DataFrame, config_dict:dict) -> DataFrame:
+    flags = config_dict.get("ally").get("flag_columns")
+    if not flags:
+        raise ValueError("No flag columns found in the configuration.")
+
+    flagged_df = ally_df[flags]
+    flagged_df = flagged_df[flagged_df == 1]
+    flag_list = (
+    flagged_df
+    .reset_index()
+    .melt(id_vars='index', value_vars=flags)
+    .dropna()
+    .groupby("index")["variable"]
+    .agg(", ".join)
+    )
+    ally_df['Flags'] = ally_df.index.map(flag_list)
+    ally_df = ally_df.drop(columns=flags)
+    return ally_df
 
 
 @logger.catch(message="Failed to join DataFrames. See traceback for details.")
@@ -504,7 +524,7 @@ def main(config_path: Path = config_file) -> str:
 
     course_files = course_content_dict.get("Files")
     course_file_data = parse_course_file_data(course_files,course_id)
-#TODO Start here...
+
     potential_a11y_issues = []
     for content_type,course_content in course_content_dict.items():
         if content_type != "Files":
@@ -513,8 +533,8 @@ def main(config_path: Path = config_file) -> str:
             potential_a11y_issues.extend(content_type_a11y_issues)
     canvas_df = create_canvas_data_df(config,course_file_data,potential_a11y_issues)
     ally_df = create_ally_df(
-        "/Users/harkmorper/Downloads/ally-31318-OPPrimary_-_SOCWRK_526_-_The_Evaluation_and_Treatment_of_Mental_Disorders_-2026-01-12-15-11.csv",
-    )
+        "/Users/harkmorper/Downloads/ally-43754-Fa25_-_COUN_549_-_Motivational_Interviewing-2026-01-15-17-55.csv",
+    ).pipe(clean_ally_df)
     drop_joint_columns = config.get("joint").get("drop_columns")
     joint_df = join_data_sources(canvas_df, ally_df, drop_joint_columns)
     create_csv(joint_df)

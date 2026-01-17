@@ -1,4 +1,4 @@
-course_id = "31318"
+course_id = "43754"
 
 [canvas]
 url = "https://boisestatecanvas.instructure.com/"
@@ -11,6 +11,20 @@ client_id = "11637"
 bearer_token = "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyIjp7InJvbGUiOiJBbGx5Q291cnNlUmVwb3J0QXBpVXNlciIsIm5hbWUiOiI8Pjw-IiwiY2xpZW50SWQiOjExNjM3LCJ1c2VySWQiOiItMSJ9LCJleHAiOjE3OTk2NDQ5NjMsImlhdCI6MTc2ODEwODk2M30.ZhwWla72CNEvLg8v_1DwyD1XlvMVaC-xuFss9H-cgNM"
 key = "HA41OiNhgkYSDAqHohaF4ZVCzeeywf0o"
 secret = "QNq1PwOFUbww0omh3IgTIwJcU00gEKHg"
+flag_columns = [
+    'AlternativeText:2',
+    'Contrast:2', 'HeadingsHigherLevel:3', 'HeadingsPresence:2',
+    'HeadingsSequential:3', 'HeadingsStartAtOne:3', 'HtmlBrokenLink:2',
+    'HtmlCaption:2', 'HtmlColorContrast:2', 'HtmlDefinitionList:3',
+    'HtmlEmptyHeading:2', 'HtmlEmptyTableHeader:2', 'HtmlHasLang:3',
+    'HtmlHeadingOrder:3', 'HtmlHeadingsPresence:2', 'HtmlHeadingsStart:2',
+    'HtmlImageAlt:2', 'HtmlImageRedundantAlt:3', 'HtmlLabel:2',
+    'HtmlLinkName:3', 'HtmlList:3', 'HtmlObjectAlt:2', 'HtmlTdHasHeader:2',
+    'HtmlTitle:3', 'ImageContrast:2', 'ImageDecorative:2',
+    'ImageDescription:2', 'ImageOcr:3', 'ImageSeizure:1',
+    'LanguageCorrect:3', 'LanguagePresence:3', 'Ocred:2', 'Parsable:1',
+    'Scanned:1', 'Security:1', 'TableHeaders:2', 'Tagged:2', 'Title:3'
+]
 
 [joint]
 drop_columns = [
