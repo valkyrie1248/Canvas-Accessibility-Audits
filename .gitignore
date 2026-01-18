@@ -1,0 +1,20 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+typings/
+canvas_a11y_audits/__marimo__/
+
+# Virtual environments
+.venv
+
+# Output files
+*.csv
+
+# Logs
+accessibility_checklist_generator.log
+expense_pipeline.log
+audit_script_EXAMPLE.py
