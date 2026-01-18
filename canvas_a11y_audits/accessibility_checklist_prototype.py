@@ -9,10 +9,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pandas as pd
+from dotenv import load_dotenv
+import os
 from canvasapi import Canvas
 from bs4 import BeautifulSoup
 from loguru import logger
-from pandas.core.frame import DataFrame
 from playwright.sync_api import sync_playwright
 
 if TYPE_CHECKING:
@@ -55,23 +56,33 @@ _file_logger = logger.add(
     level="TRACE",
 )
 # =============================================================================
-# SET-UP
+# CONFIGURATION - Constants
 # =============================================================================
 PROJECT_ROOT = Path(__file__).parent.parent
-config_file = PROJECT_ROOT / "config.toml"
+CONFIG_FILE = PROJECT_ROOT / "config.toml"
+
+# Import Credentials from .env
+load_dotenv()
+
+# Canvas Credentials
+CANVAS_TOKEN = os.environ.get('canvas_token')
+
+# Ally Credentials
+ALLY_KEY = os.environ.get('key')
+ALLY_SECRET = os.environ.get('secret')
 
 
 # =============================================================================
-# FUNCTIONS - Initialize Configurations
+# FUNCTIONS - Initialize Configuration
 # =============================================================================
 @logger.catch()
-def load_config(config_path: Path=config_file) -> dict:
+def load_config(config_path: Path) -> dict:
     f"""Parse toml file containing configuration and data schema rules.
 
     Parameters
     ----------
     config_path: Path
-        Path object pointing to the config file. ({config_file}, by default)
+        Path object pointing to the config file.
 
     Returns
     -------
@@ -96,7 +107,7 @@ def load_config(config_path: Path=config_file) -> dict:
 @logger.catch(
     message="Failed to initialize Canvas Course object. See traceback for details.",
 )
-def initialize_canvas_course(config_dict: dict, course_id: str) -> DataFrame:
+def initialize_canvas_course(config_dict: dict, course_id: str, canvas_token:str=CANVAS_TOKEN) -> DataFrame:
     """Initialize Canvas Course object.
 
     Note: This does not download the full Canvas Course. Rather, it defers
@@ -110,13 +121,17 @@ def initialize_canvas_course(config_dict: dict, course_id: str) -> DataFrame:
     course_id: str
         Unique Canvas identifier for the course you are reviewing.
 
+    canvas_token: str, optional
+        Canvas API access token. Must be generated for individual user in Canvas
+        user settings. (See https://community.instructure.com/en/kb/articles/662901-how-do-i-manage-api-access-tokens-in-my-user-account)
+        By default, CANVAS_TOKEN.
+
     Returns
     -------
     course_obj: Course
         Course object (from CanvasAPI) for the chosen course
     """
     canvas_url = config_dict.get("canvas").get("url")
-    canvas_token = config_dict.get("canvas").get("token")
 
     logger.info("Initializing Canvas object...")
     canvas: Canvas = Canvas(canvas_url, canvas_token)
@@ -608,7 +623,8 @@ def create_canvas_data_df(
         List of dictionaries, with each dictionary corresponding to a single
         item in the course site that may have accessibility issues.
     dtypebackend: str, optional
-        The dtype backend you want for your dataframe ("pyarrow", by default)
+        The dtype backend you want for your dataframe
+        By defualt, "pyarrow".
 
     Returns
     -------
@@ -794,7 +810,7 @@ def save_as_csv(df: DataFrame,file_path: Path | str) -> None:
 # TODO Move some of this doc string to the README?
 @logger.catch()
 def main(
-    config_path: Path = config_file,
+    config_path: Path = CONFIG_FILE,
     run_id: int = int(datetime.datetime.now().timestamp()),
     storage_file_path: str | Path = f"accessibility_review_{date_time}.csv"
     ) -> str:
@@ -804,13 +820,13 @@ def main(
     Accessibility data is pulled from Ally course report via the reports
     dashboard, and requires Institutional ID, Course ID, plus Ally Key & Secret.
     Canvas data is pulled from the Canvas API, and requires Institutional ID,
-    Course ID, Canvas Bearer Token, plus course design privileges for course.
+    Course ID, Canvas API Access Token, plus course design privileges for course.
 
     Parameters
     ----------
     config_path : Path, optional
         Path object pointing to the config file.
-        By default, config_file
+        By default, CONFIG_FILE
     run_id : int, optional
         Unique program identifier for this run of the program.
         By default, int(datetime.datetime.now().timestamp())

@@ -2,16 +2,12 @@ course_id = "43754"
 
 [canvas]
 url = "https://boisestatecanvas.instructure.com/"
-token = "15177~HmTELDkkyAQTXctakDmUt9B3MKYKeWKYJVE36zumEJJZ6u8th9TKPwA3WBTMJ9F2"
 drop_columns = ["_requester"]
 
 [ally]
 download_dir = "/Users/harkmorper/Desktop/canvas_a11y_audits/data"
 region = "prod.ally.ac"
 client_id = "11637"
-bearer_token = "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyIjp7InJvbGUiOiJBbGx5Q291cnNlUmVwb3J0QXBpVXNlciIsIm5hbWUiOiI8Pjw-IiwiY2xpZW50SWQiOjExNjM3LCJ1c2VySWQiOiItMSJ9LCJleHAiOjE3OTk2NDQ5NjMsImlhdCI6MTc2ODEwODk2M30.ZhwWla72CNEvLg8v_1DwyD1XlvMVaC-xuFss9H-cgNM"
-key = "HA41OiNhgkYSDAqHohaF4ZVCzeeywf0o"
-secret = "QNq1PwOFUbww0omh3IgTIwJcU00gEKHg"
 flag_columns = [
     'AlternativeText:2',
     'Contrast:2', 'HeadingsHigherLevel:3', 'HeadingsPresence:2',
