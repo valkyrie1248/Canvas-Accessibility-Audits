@@ -62,16 +62,26 @@ config_file = PROJECT_ROOT / "config.toml"
 
 
 # =============================================================================
-# FUNCTIONS
+# FUNCTIONS - Initialize Configurations
 # =============================================================================
 @logger.catch()
-def load_config(config_path=config_file) -> dict:
-    """Parse toml file containing configuration and data schema rules.
+def load_config(config_path: Path=config_file) -> dict:
+    f"""Parse toml file containing configuration and data schema rules.
+
+    Parameters
+    ----------
+    config_path: Path
+        Path object pointing to the config file. ({config_file}, by default)
 
     Returns
     -------
-    Dictionary containing all rules, equivalencies, and configuration settings.
+    dict
+        Dictionary containing all rules, equivalencies, and configuration settings
 
+    Raises
+    ------
+    FileNotFoundError
+        If config file is not found at config_path
     """
     try:
         with Path(config_path).open("rb") as f:
@@ -80,11 +90,13 @@ def load_config(config_path=config_file) -> dict:
         logger.exception(f"Config file {config_path} not found.")
         return {}
 
-
+# =============================================================================
+# FUNCTIONS - Download and Clean Course Data from Canvas
+# =============================================================================
 @logger.catch(
     message="Failed to initialize Canvas Course object. See traceback for details.",
 )
-def initialize_canvas_course(config_dict, course_id) -> DataFrame:
+def initialize_canvas_course(config_dict: dict, course_id: str) -> DataFrame:
     """Initialize Canvas Course object.
 
     Note: This does not download the full Canvas Course. Rather, it defers
@@ -93,12 +105,15 @@ def initialize_canvas_course(config_dict, course_id) -> DataFrame:
     Parameters
     ----------
     config_dict: dict
-        Dictionary of configuration settings from config.toml.
+        Dictionary containing all rules, equivalencies, and settings
+
+    course_id: str
+        Unique Canvas identifier for the course you are reviewing.
 
     Returns
     -------
     course_obj: Course
-        Course object (from CanvasAPI) for the chosen course.
+        Course object (from CanvasAPI) for the chosen course
     """
     canvas_url = config_dict.get("canvas").get("url")
     canvas_token = config_dict.get("canvas").get("token")
@@ -113,23 +128,16 @@ def initialize_canvas_course(config_dict, course_id) -> DataFrame:
 
 
 @logger.catch()
-def fetch_course_content(course:Course, config_dict: dict):
-    '''
-    Retrieve Canvas course data from Canvas API for all types listed in config.
+def fetch_course_content(course:Course, config_dict: dict) -> dict:
+    '''Retrieve Canvas course data from Canvas API for all types in config.
 
     Parameters
     ----------
     course: Course
         Canvas Course object created by CanvasAPI library.
-    content_type: str
-        String alias for the content type you want to fetch. Acceptable inputs:
-        - 'pages'
-        - 'assignments'
-        - 'quizzes'
-        - 'discussions'
-        - 'files'
-    config: dict
-        Dictionary of configuration settings from config.toml.
+
+    config_dict: dict
+        Dictionary containing all rules, equivalencies, and settings
 
     Returns
     -------
@@ -137,7 +145,7 @@ def fetch_course_content(course:Course, config_dict: dict):
         Dictionary where keys are content types and values are results of
         the corresponding CanvasAPI course.get_{content_type} calls.
     '''
-    # TODO Add try/except loop, Finish docstring.
+    # TODO Add try/except loop.
     course_content_dict = {}
     config_content_types = config_dict.get("content_types")
     for content_type, params in config_content_types.items():
@@ -150,16 +158,17 @@ def fetch_course_content(course:Course, config_dict: dict):
 
 
 @logger.catch()
-def parse_course_file_data(course_files, course_id, run_id) -> list[dict[str,str]]:
-    '''
-    Pull out portions of data for course files that will end up in our DataFrame
+def parse_course_file_data(course_files, course_id: str, run_id: int ) -> list[dict[str,str]]:
+    '''Extract and organize important data about course files.
 
     Parameters
     ----------
     course_files: PaginatedList[File]
         PaginatedList of File objects assembled by CanvasAPI library.
     course_id: str
-        course_id
+        Unique Canvas identifier for the course you are reviewing.
+    run_id: int
+        Unique program identifier for this run of the program.
 
     Returns
     -------
@@ -190,7 +199,7 @@ def parse_course_file_data(course_files, course_id, run_id) -> list[dict[str,str
 @logger.catch()
 def extract_html(course_content, content_type, config) -> str:
     """
-    Extract html data from course content object for scraping.
+    Extract HTML data from course content object for scraping.
     Returns the raw HTML string.
 
     Parameters
@@ -203,8 +212,8 @@ def extract_html(course_content, content_type, config) -> str:
         - 'assignments'
         - 'quizzes'
         - 'discussions'
-    config: dict
-        Dictionary of configuration settings from config.toml
+    config_dict: dict
+        Dictionary containing all rules, equivalencies, and settings
 
     Returns
     -------
@@ -214,7 +223,7 @@ def extract_html(course_content, content_type, config) -> str:
     Raises
     ------
     ValueError
-        _description_
+        If content_type is not one of the types outlined in config file.
     """
     logger.info(f"Extracting html_data for {content_type}")
     type_config = config["content_types"].get(content_type)
@@ -228,7 +237,14 @@ def extract_html(course_content, content_type, config) -> str:
 
 # TODO Learn about iframe in Canvas and decide whether to include it.
 @logger.catch()
-def parse_html_content(html_string, course_id, run_id, content_type, content_name, content_url) -> list[dict[str,str]]:
+def parse_html_content(
+    html_string: str,
+    course_id: str,
+    run_id: int,
+    content_type: str,
+    content_name: str,
+    content_url: str
+    ) -> list[dict[str,str]]:
     '''
     Search html_content for items that need to be checked for accessibility.
     Returns a list of dictionaries, with each dictionary corresponding to a
@@ -237,26 +253,23 @@ def parse_html_content(html_string, course_id, run_id, content_type, content_nam
     Parameters
     ----------
     html_string: _type_
-        _description_
-    course_id: _type_
-        _description_
-    content_type: _type_
-        _description_
-    content_name: _type_
-        _description_
-    content_url: _type_
-        _description_
+        Raw HTML extracted from a course content object.
+    course_id: str
+        Unique Canvas identifier for the course you are reviewing.
+    run_id: int
+        Unique program identifier for this run of the program.
+    content_type: str
+        Type of content that contains the HTML data.
+    content_name: str
+        Name of the content containing the HTML data.
+    content_url: str
+        Direct URL for the content containing the HTML data.
 
     Returns
     -------
     potential_a11y_issues: list[dict[str,str|int]]
         List of dictionaries, with each dictionary corresponding to a single
         item in the course site that may have accessibility issues.
-
-    Raises
-    ------
-    ValueError
-        _description_
     '''
 
     potential_a11y_issues = []
@@ -276,7 +289,7 @@ def parse_html_content(html_string, course_id, run_id, content_type, content_nam
             "audit_status": "New Content",
             "content-type": content_type,
             "display_name": content_name,
-            "url": content_url,
+            "url": link_url,
             "reason_extracted": "Link",
             "canvas_flags": None,
             "canvas_details": f"Link to: {href} (Link text: '{text}')",
@@ -351,69 +364,29 @@ def parse_html_content(html_string, course_id, run_id, content_type, content_nam
     logger.debug(len(potential_a11y_issues))
     return potential_a11y_issues
 
-
-@logger.catch("Failed to craete Canvas api DataFrame")
-def create_canvas_data_df(
-    config_dict: dict,
-    course_file_data: list[dict[str,str]],
-    potential_a11y_issues: list[dict[str,str]],
-    dtypebackend = "pyarrow"
-    ) -> DataFrame:
-    """Create a DataFrame of canvas items with potential accessibility issues.
-
-    Parameters
-    ----------
-    config_dict: dict
-        Dictionary of configuration settings from config.toml
-    course_file_data: list[dict[str,str|int]]
-        List of dictionaries, with each dictionary corresponding to a single
-        file in the course site that may have accessibility issues.
-    potential_a11y_issues: list[dict[str,str]]
-        List of dictionaries, with each dictionary corresponding to a single
-        item in the course site that may have accessibility issues.
-    dtypebackend: str, optional
-        The dtype backend you want for your dataframe ("pyarrow", by default)
-
-    Returns
-    -------
-    canvas_df: DataFrame
-        A DataFrame where each row is a single canvas item that may have an
-        accessibility issue.
-    """
-    potential_a11y_issues.extend(course_file_data)
-    logger.debug(len(potential_a11y_issues))
-
-    # drop_cols = config_dict.get("canvas").get("drop_columns")
-
-    logger.info("Initializing DataFrame")
-    canvas_df: DataFrame = (
-        pd.DataFrame(potential_a11y_issues)
-        .convert_dtypes(dtype_backend=dtypebackend)
-        )
-    # canvas_df = canvas_df.drop(drop_cols,axis=columns) I think this is now not needed.
-    logger.debug(canvas_df.shape)
-    return canvas_df
-
-
 # =============================================================================
-# ALLY REPORT DOWNLOAD FUNCTIONS
+# FUNCTIONS - Download Course Report from Ally
 # =============================================================================
 logger.catch("There was an error getting the session cookie: ")
 def get_ally_session_cookie(config_dict: dict) -> str:
     """
-    Navigate to the Ally report page, log in via LTI Key/Secret, and retrieve the session cookie.
+    Retrieve session cookie from Ally institutional reporting dashboard.
+
+    This session cookie is used for authentication when accessing course report
+    API endpoint. Cookie must be for an active session, so Playwright navigates
+    to the site in headless browser mode (i.e., you won't see this happen).
+    Will wait up to 10 seconds to find session cookie before raising error.
 
     Parameters
     ----------
-    config : dict
-        Dictionary containing configuration settings. Must include an 'ally'
-        section with 'key' and 'secret' fields.
+    config_dict: dict
+        Dictionary containing all rules, equivalencies, and settings
 
     Returns
     -------
     cookie_string : str
-        The formatted session cookie string required for API requests
-        (e.g., "session-11637=abc12345").
+        The formatted session cookie string required for API requests. Begins
+        with "session-{client_id}=" and is followed by a very long string.
 
     Raises
     ------
@@ -474,12 +447,17 @@ def get_ally_session_cookie(config_dict: dict) -> str:
 def trigger_ally_export(course_id: str, config_dict: dict, cookie_string:str) -> str:
     """Trigger the Ally CSV export via API and retrieve the S3 download URL.
 
+    Uses the exposed API endpoint normally activated by clicking the export
+    button in course-level report section of institutional reports dashboard.
+
     Parameters
     ----------
-    course_id : str
-        The Canvas course ID.
-    config : dict
-        Configuration dictionary containing 'ally' settings (client_id, token, cookie_string).
+    course_id: str
+        Unique Canvas identifier for the course you are reviewing.
+    config_dict: dict
+        Dictionary containing all rules, equivalencies, and settings
+    cookie_string: str
+        Cookie string that needs to be sent in header for authentication.
 
     Returns
     -------
@@ -529,26 +507,26 @@ def trigger_ally_export(course_id: str, config_dict: dict, cookie_string:str) ->
 
 @logger.catch()
 def download_s3_file(s3_url: str, course_id: str, download_dir: str) -> Path:
-    """Download the file from the S3 URL to the specified directory.
+    """Download course report from S3 URL and save to the specified directory.
 
     Parameters
     ----------
     s3_url : str
-        The signed S3 URL.
-    course_id : str
-        The Canvas course ID (used for naming the file).
+        The signed S3 URL created by trigger_ally_export.
+    course_id: str
+        Unique Canvas identifier for the course. (Used for naming file.)
     download_dir : str
-        Directory to save the file.
+        Directory to save the report.
 
     Returns
     -------
     Path
-        Path object pointing to the downloaded CSV file.
+        Path object pointing to the downloaded CSV file
 
     Raises
     ------
     ValueError
-        If the downloaded file is suspicious (e.g., too small/XML error).
+        If the downloaded file is suspiciously small, suggesting an error.
     """
     date_time = datetime.datetime.now().strftime("%Y%m%d%H%M")
     save_path = Path(download_dir)
@@ -578,14 +556,18 @@ def download_s3_file(s3_url: str, course_id: str, download_dir: str) -> Path:
 
 @logger.catch()
 def get_ally_report(course_id: str, config_dict: dict) -> Path:
-    """Orchestrator to trigger export and download the Ally report.
+    """Fetch course report from Ally institutional report.
+
+    Orchestrator that fetches the cookie string for authentication, then ensures
+    trigger_ally_export and download_s3_file are executed in quick succession.
+    This is how we bypass the short 120s expiration of signed s3 url.
 
     Parameters
     ----------
-    course_id : str
-        The Canvas course ID.
-    config : dict
-        Configuration dictionary.
+    course_id: str
+        Unique Canvas identifier for the course you are reviewing.
+    config_dict: dict
+        Dictionary containing all rules, equivalencies, and settings
 
     Returns
     -------
@@ -602,6 +584,51 @@ def get_ally_report(course_id: str, config_dict: dict) -> Path:
     csv_path = download_s3_file(s3_url, course_id, download_dir)
 
     return csv_path
+
+# =============================================================================
+# FUNCTIONS - DataFrame Creation
+# =============================================================================
+@logger.catch("Failed to craete Canvas api DataFrame")
+def create_canvas_data_df(
+    config_dict: dict,
+    course_file_data: list[dict[str,str]],
+    potential_a11y_issues: list[dict[str,str]],
+    dtypebackend = "pyarrow"
+    ) -> DataFrame:
+    """Create a DataFrame of canvas items with potential accessibility issues.
+
+    Parameters
+    ----------
+    config_dict: dict
+        Dictionary containing all rules, equivalencies, and settings
+    course_file_data: list[dict[str,str|int]]
+        List of dictionaries, with each dictionary corresponding to a single
+        file in the course site that may have accessibility issues.
+    potential_a11y_issues: list[dict[str,str]]
+        List of dictionaries, with each dictionary corresponding to a single
+        item in the course site that may have accessibility issues.
+    dtypebackend: str, optional
+        The dtype backend you want for your dataframe ("pyarrow", by default)
+
+    Returns
+    -------
+    canvas_df: DataFrame
+        A DataFrame where each row is a single canvas item that may have an
+        accessibility issue.
+    """
+    potential_a11y_issues.extend(course_file_data)
+    logger.debug(len(potential_a11y_issues))
+
+    # drop_cols = config_dict.get("canvas").get("drop_columns")
+
+    logger.info("Initializing DataFrame")
+    canvas_df: DataFrame = (
+        pd.DataFrame(potential_a11y_issues)
+        .convert_dtypes(dtype_backend=dtypebackend)
+        )
+    # canvas_df = canvas_df.drop(drop_cols,axis=columns) I think this is now not needed.
+    logger.debug(canvas_df.shape)
+    return canvas_df
 
 
 @logger.catch(
@@ -620,9 +647,14 @@ def create_ally_df(
     file_path: Path | str
         The full or relative path of the downloaded course report.
     use_columns: list[str], optional
-        Set of columns to include, by default includes all columns.
-    dtypebackend: str
-        The dtype backend you want for your dataframe ("pyarrow", by default)
+        Set of columns to include.
+        By default includes all columns
+    dtypebackend: str, optional
+        The dtype backend you want for your dataframe.
+        By default, pyarrow (for performance and memory optimization)
+    show_deleted: bool, optional
+        Switch to True to include content that has been deleted from course site.
+        By default, False
 
     Returns
     -------
@@ -649,9 +681,31 @@ def create_ally_df(
     return ally_df.loc[ally_df["Deleted at"].isna()]
 
 
-# This function condenses the ally_df dummy columns to a single "Flags" column.
 @logger.catch()
 def clean_ally_df(ally_df:DataFrame, config_dict:dict) -> DataFrame:
+    """
+    Make Ally DataFrame more useful for review and tracking of remediation.
+
+    This condenses the 38 columns for possible accessibility flags from Ally
+    into a single column that that lists all flags for that row (item).
+
+    Parameters
+    ----------
+    ally_df: DataFrame
+        DataFrame of all content in Canvas course site that Ally has checked for accessibility.
+    config_dict: dict
+        Dictionary containing all rules, equivalencies, and settings
+
+    Returns
+    -------
+    clean_ally_df: DataFrame
+        Tidier version of the Ally data.
+
+    Raises
+    ------
+    ValueError
+        If it can't find the flag_columns in the config_dict.
+    """
     flags = config_dict.get("ally").get("flag_columns")
     if not flags:
         raise ValueError("No flag columns found in the configuration.")
@@ -667,8 +721,8 @@ def clean_ally_df(ally_df:DataFrame, config_dict:dict) -> DataFrame:
     .agg(", ".join)
     )
     ally_df['Flags'] = ally_df.index.map(flag_list)
-    ally_df = ally_df.drop(columns=flags)
-    return ally_df
+    clean_ally_df = ally_df.drop(columns=flags)
+    return clean_ally_df
 
 
 @logger.catch(message="Failed to join DataFrames. See traceback for details.")
@@ -685,6 +739,9 @@ def join_data_sources(
         DataFrame of all files from Canvas course site. (Could also be all content from canvas if you create it right.)
     ally_df: DataFrame
         DataFrame of all content in Canvas course site that Ally has checked for accessibility.
+    drop_cols: list[str], optional
+        List of columns you want to drop from the final DataFrame.
+        By default, None.
 
     Returns
     -------
@@ -709,7 +766,21 @@ def join_data_sources(
 @logger.catch(
     message="Failed to write {df} to CSV. See trackeback for details.",
 )
-def create_csv(df: DataFrame,file_path) -> None:
+def save_as_csv(df: DataFrame,file_path: Path | str) -> None:
+    """
+    Save the joint DataFrame as a csv.
+
+    Parameters
+    ----------
+    df : DataFrame
+        _description_
+    file_path : Path | str
+        _description_
+
+    Returns
+    -------
+    None
+    """
     date_time = datetime.datetime.now().strftime("%Y%m%d%H%M")
     df.loc[df["Score"].notna(),"Score"] = df.loc[df["Score"].notna(),"Score"] * 100
     return df.to_csv(
@@ -720,13 +791,38 @@ def create_csv(df: DataFrame,file_path) -> None:
     )
 
 # TODO Use conditional to skip parse-extract func w/files.
+# TODO Move some of this doc string to the README?
 @logger.catch()
 def main(
     config_path: Path = config_file,
     run_id: int = int(datetime.datetime.now().timestamp()),
-    storage_file_path = f"accessibility_review_{date_time}.csv"
+    storage_file_path: str | Path = f"accessibility_review_{date_time}.csv"
     ) -> str:
-    """Orchestrate the retrieval and combining of Ally and Canvas data."""
+    """
+    Orchestrates the process of extracting, cleaning, and saving course data.
+
+    Accessibility data is pulled from Ally course report via the reports
+    dashboard, and requires Institutional ID, Course ID, plus Ally Key & Secret.
+    Canvas data is pulled from the Canvas API, and requires Institutional ID,
+    Course ID, Canvas Bearer Token, plus course design privileges for course.
+
+    Parameters
+    ----------
+    config_path : Path, optional
+        Path object pointing to the config file.
+        By default, config_file
+    run_id : int, optional
+        Unique program identifier for this run of the program.
+        By default, int(datetime.datetime.now().timestamp())
+    storage_file_path : str | Path, optional
+        String or Path object pointing to the config file.
+        By default, f"accessibility_review_{date_time}.csv"
+
+    Returns
+    -------
+    str
+        Message telling you whether or not the process succeeded.
+    """
     logger.info("Starting program...")
 
     config = load_config(config_path)
@@ -758,7 +854,7 @@ def main(
 
     drop_joint_columns = config.get("joint").get("drop_columns")
     joint_df = join_data_sources(canvas_df, ally_df, drop_joint_columns)
-    create_csv(joint_df,storage_file_path)
+    save_as_csv(joint_df,storage_file_path)
     success_message = f"Congratulations! Accessibility Review File created: {storage_file_path}!"
     logger.success(success_message)
     return success_message
