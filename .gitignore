@@ -18,3 +18,4 @@ canvas_a11y_audits/__marimo__/
 accessibility_checklist_generator.log
 expense_pipeline.log
 audit_script_EXAMPLE.py
+*.DS_Store*
