@@ -84,7 +84,7 @@ def load_config(config_path=config_file) -> dict:
 @logger.catch(
     message="Failed to initialize Canvas Course object. See traceback for details.",
 )
-def initialize_canvas_course(config_dict) -> DataFrame:
+def initialize_canvas_course(config_dict, course_id) -> DataFrame:
     """Initialize Canvas Course object.
 
     Note: This does not download the full Canvas Course. Rather, it defers
@@ -107,7 +107,6 @@ def initialize_canvas_course(config_dict) -> DataFrame:
     canvas: Canvas = Canvas(canvas_url, canvas_token)
 
     logger.info("Initializing Canvas Course object...")
-    course_id = config_dict.get("course_id")
     course_obj: Course = canvas.get_course(course_id)
 
     return course_obj
@@ -151,7 +150,7 @@ def fetch_course_content(course:Course, config_dict: dict):
 
 
 @logger.catch()
-def parse_course_file_data(course_files, course_id) -> list[dict[str,str]]:
+def parse_course_file_data(course_files, course_id, run_id) -> list[dict[str,str]]:
     '''
     Pull out portions of data for course files that will end up in our DataFrame
 
@@ -169,7 +168,6 @@ def parse_course_file_data(course_files, course_id) -> list[dict[str,str]]:
         file in the course site that may have accessibility issues.
     '''
     logger.info("Fetching course files data...")
-    run_id = int(datetime.datetime.now().timestamp())
 
     course_file_data = []
     for file in course_files:
@@ -230,7 +228,7 @@ def extract_html(course_content, content_type, config) -> str:
 
 # TODO Learn about iframe in Canvas and decide whether to include it.
 @logger.catch()
-def parse_html_content(html_string, course_id, content_type, content_name, content_url) -> list[dict[str,str]]:
+def parse_html_content(html_string, course_id, run_id, content_type, content_name, content_url) -> list[dict[str,str]]:
     '''
     Search html_content for items that need to be checked for accessibility.
     Returns a list of dictionaries, with each dictionary corresponding to a
@@ -269,7 +267,6 @@ def parse_html_content(html_string, course_id, content_type, content_name, conte
     else:
         logger.debug("html string not empty. Extracting now...")
     soup = BeautifulSoup(html_string, 'html.parser')
-    run_id = int(datetime.datetime.now().timestamp())
 
     for a_tag in soup.find_all('a', href=True):
         link_url = a_tag['href']
@@ -712,11 +709,11 @@ def join_data_sources(
 @logger.catch(
     message="Failed to write {df} to CSV. See trackeback for details.",
 )
-def create_csv(df: DataFrame) -> None:
+def create_csv(df: DataFrame,file_path) -> None:
     date_time = datetime.datetime.now().strftime("%Y%m%d%H%M")
     df.loc[df["Score"].notna(),"Score"] = df.loc[df["Score"].notna(),"Score"] * 100
     return df.to_csv(
-        f"accessibility_review_{date_time}.csv",
+        file_path,
         na_rep="",
         mode="x",
         float_format="%.2f",
@@ -724,19 +721,23 @@ def create_csv(df: DataFrame) -> None:
 
 # TODO Use conditional to skip parse-extract func w/files.
 @logger.catch()
-def main(config_path: Path = config_file) -> str:
+def main(
+    config_path: Path = config_file,
+    run_id: int = int(datetime.datetime.now().timestamp()),
+    storage_file_path = f"accessibility_review_{date_time}.csv"
+    ) -> str:
     """Orchestrate the retrieval and combining of Ally and Canvas data."""
     logger.info("Starting program...")
-    run_id = int(datetime.datetime.now().timestamp())
+
     config = load_config(config_path)
     course_id = config.get("course_id")
 
-    course_obj = initialize_canvas_course(config)
+    course_obj = initialize_canvas_course(config, course_id)
 
     course_content_dict = fetch_course_content(course_obj, config)
 
     course_files = course_content_dict.get("Files")
-    course_file_data = parse_course_file_data(course_files,course_id)
+    course_file_data = parse_course_file_data(course_files,course_id, run_id)
 
     potential_a11y_issues = []
     for content_type,course_content in course_content_dict.items():
@@ -752,13 +753,13 @@ def main(config_path: Path = config_file) -> str:
         logger.error(f"Failed to download Ally report: {e}")
         return "Process failed during Ally report download."
     ally_df = create_ally_df(
-        "/Users/harkmorper/Downloads/ally-43754-Fa25_-_COUN_549_-_Motivational_Interviewing-2026-01-15-17-55.csv",
+        ally_csv_path,
     ).pipe(clean_ally_df, config_dict=config)
 
     drop_joint_columns = config.get("joint").get("drop_columns")
     joint_df = join_data_sources(canvas_df, ally_df, drop_joint_columns)
-    create_csv(joint_df)
-    success_message = "Congratulations! DataFrame written to CSV!"
+    create_csv(joint_df,storage_file_path)
+    success_message = f"Congratulations! Accessibility Review File created: {storage_file_path}!"
     logger.success(success_message)
     return success_message
 
