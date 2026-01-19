@@ -16,3 +16,5 @@
   - Feat: place in: path / "{department*prefix}" / "{course name}*{course_number}"
 - Build: Update pyproject.toml
 - Refactor: Consider separating into modules: Canvas DF, Ally DF, Main
+- Learn about iframe in Canvas and decide whether to include it.
+- Refactor: Adjust parse_html_content to use fewer parameters
