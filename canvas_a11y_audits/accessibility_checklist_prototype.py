@@ -1,25 +1,46 @@
-"""Retrieve and combine data for a single course from both ally and canvas."""
+"""Compiles a spreadsheet for course accessibility audits from both Canvas and Ally API data.
 
+Copyright (C) 2026  Jeremy Harper (valkyrie1248@protonmail.com).
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License as published by the Free
+Software Foundation, either version 3 of the License, or any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE.  See the GNU Affero General Public License for
+more details.
+
+You should have received a copy of the GNU Affero General Public License along
+with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+If your software can interact with users remotely through a computer network,
+you should also make sure that it provides a way for users to get its source.
+For example, if your program is a web application, its interface could display
+a "Source" link that leads users to an archive of the code.  There are many
+ways you could offer source, and different solutions will be better for
+different programs; see section 13 for the specific requirements.
+"""
+
+import os
 import sys
-import tomllib
-import datetime
 import time
-import requests
+import tomllib
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pandas as pd
-from dotenv import load_dotenv
-import os
-from canvasapi import Canvas
+import requests
 from bs4 import BeautifulSoup
+from canvasapi import Canvas
+from dateutil import tz
+from dotenv import load_dotenv
 from loguru import logger
 from playwright.sync_api import sync_playwright
 
 if TYPE_CHECKING:
-    from canvasapi.course import Course
-    from canvasapi.file import File
-    from canvasapi.paginated_list import PaginatedList
+    from canvasapi import Course, File, PaginatedList
     from pandas.core.frame import DataFrame
 
 
@@ -60,24 +81,25 @@ _file_logger = logger.add(
 # =============================================================================
 PROJECT_ROOT = Path(__file__).parent.parent
 CONFIG_FILE = PROJECT_ROOT / "config.toml"
+RUN_ID: int = int(datetime.now(tz=tz.local()).timestamp())
 
 # Import Credentials from .env
-load_dotenv()
+_ = load_dotenv()
 
 # Canvas Credentials
-CANVAS_TOKEN = os.environ.get('canvas_token')
+CANVAS_TOKEN: str | None = os.environ.get("CANVAS_TOKEN")
 
 # Ally Credentials
-ALLY_KEY = os.environ.get('key')
-ALLY_SECRET = os.environ.get('secret')
+ALLY_KEY: str | None = os.environ.get("KEY")
+ALLY_SECRET: str | None = os.environ.get("SECRET")
 
 
 # =============================================================================
 # FUNCTIONS - Initialize Configuration
 # =============================================================================
 @logger.catch()
-def load_config(config_path: Path) -> dict:
-    f"""Parse toml file containing configuration and data schema rules.
+def load_config(config_path: Path) -> dict[str, str | dict[str, str | list[str | dict[str, str]]]]:
+    """Parse toml file containing configuration and data schema rules.
 
     Parameters
     ----------
@@ -99,7 +121,8 @@ def load_config(config_path: Path) -> dict:
             return tomllib.load(f)
     except FileNotFoundError:
         logger.exception(f"Config file {config_path} not found.")
-        return {}
+        raise
+
 
 # =============================================================================
 # FUNCTIONS - Download and Clean Course Data from Canvas
@@ -107,7 +130,11 @@ def load_config(config_path: Path) -> dict:
 @logger.catch(
     message="Failed to initialize Canvas Course object. See traceback for details.",
 )
-def initialize_canvas_course(config_dict: dict, course_id: str, canvas_token:str=CANVAS_TOKEN) -> DataFrame:
+def initialize_canvas_course(
+    config_dict: dict[str, str | dict[str, str | list[str | dict[str, str]]]],
+    course_id: str,
+    canvas_token: str | None = CANVAS_TOKEN,
+) -> DataFrame:
     """Initialize Canvas Course object.
 
     Note: This does not download the full Canvas Course. Rather, it defers
@@ -143,8 +170,8 @@ def initialize_canvas_course(config_dict: dict, course_id: str, canvas_token:str
 
 
 @logger.catch()
-def fetch_course_content(course:Course, config_dict: dict) -> dict:
-    '''Retrieve Canvas course data from Canvas API for all types in config.
+def fetch_course_content(course: Course, config_dict: dict) -> dict:
+    """Retrieve Canvas course data from Canvas API for all types in config.
 
     Parameters
     ----------
@@ -159,22 +186,33 @@ def fetch_course_content(course:Course, config_dict: dict) -> dict:
     course_content_dict
         Dictionary where keys are content types and values are results of
         the corresponding CanvasAPI course.get_{content_type} calls.
-    '''
-    # TODO Add try/except loop.
+
+    Raises
+    ------
+    ValueError
+        If config_dict does not contain content types dictionary.
+    """
     course_content_dict = {}
-    config_content_types = config_dict.get("content_types")
+    config_content_types: dict[str, dict] | None = config_dict.get("content_types")  # pyright: ignore[reportMissingTypeArgument]
+    if not config_content_types:
+        error_message = "Failed to load content types. Check config.toml."
+        raise ValueError(error_message)
     for content_type, params in config_content_types.items():
         logger.info(f"Fetching Canvas {content_type}")
         fetch_method = getattr(course, params["method"])
         course_content_dict.update(
-            {content_type : fetch_method(**params["keyword_params"])}
-            )
+            {content_type: fetch_method(**params["keyword_params"])},
+        )
     return course_content_dict
 
 
 @logger.catch()
-def parse_course_file_data(course_files, course_id: str, run_id: int ) -> list[dict[str,str]]:
-    '''Extract and organize important data about course files.
+def parse_course_file_data(
+    course_files: PaginatedList[File],
+    course_id: str,
+    run_id: int,
+) -> list[dict[str, str]]:
+    """Extract and organize important data about course files.
 
     Parameters
     ----------
@@ -190,12 +228,11 @@ def parse_course_file_data(course_files, course_id: str, run_id: int ) -> list[d
     course_file_data: list[dict[str,str|int]]
         List of dictionaries, with each dictionary corresponding to a single
         file in the course site that may have accessibility issues.
-    '''
+    """
     logger.info("Fetching course files data...")
 
-    course_file_data = []
-    for file in course_files:
-        course_file_data.append({
+    course_file_data = [
+        {
             "course_id": course_id,
             "audit_status": "New Content",
             "content-type": "File",
@@ -206,15 +243,18 @@ def parse_course_file_data(course_files, course_id: str, run_id: int ) -> list[d
             "canvas_details": "See Ally",
             "alt_text": "N/A",
             "run_id": run_id,
-        })
+        }
+        for file in course_files
+    ]
     logger.debug(len(course_file_data))
     return course_file_data
 
 
 @logger.catch()
-def extract_html(course_content, content_type, config) -> str:
+def extract_html(course_content, content_type: str, config_dict: dict) -> str:
     """
     Extract HTML data from course content object for scraping.
+
     Returns the raw HTML string.
 
     Parameters
@@ -241,16 +281,20 @@ def extract_html(course_content, content_type, config) -> str:
         If content_type is not one of the types outlined in config file.
     """
     logger.info(f"Extracting html_data for {content_type}")
-    type_config = config["content_types"].get(content_type)
+    type_config = config_dict["content_types"].get(content_type)
     if not type_config:
-        raise ValueError(f"Unknown content type: {content_type}")
+        error_message = f"Unknown content type: {content_type}"
+        raise ValueError(error_message)
 
     html_string = getattr(course_content, type_config["html_field"], "")
-    content_name = getattr(course_content, type_config["title_field"], "Untitled")
-    return html_string,content_name
+    content_name = getattr(
+        course_content,
+        type_config["title_field"],
+        "Untitled",
+    )
+    return html_string, content_name
 
 
-# TODO Learn about iframe in Canvas and decide whether to include it.
 @logger.catch()
 def parse_html_content(
     html_string: str,
@@ -258,10 +302,11 @@ def parse_html_content(
     run_id: int,
     content_type: str,
     content_name: str,
-    content_url: str
-    ) -> list[dict[str,str]]:
-    '''
+    content_url: str,
+) -> list[dict[str, str]]:
+    """
     Search html_content for items that need to be checked for accessibility.
+
     Returns a list of dictionaries, with each dictionary corresponding to a
     single item in the course site that may have accessibility issues.
 
@@ -285,104 +330,115 @@ def parse_html_content(
     potential_a11y_issues: list[dict[str,str|int]]
         List of dictionaries, with each dictionary corresponding to a single
         item in the course site that may have accessibility issues.
-    '''
-
-    potential_a11y_issues = []
+    """
+    potential_a11y_issues: list[dict | None] = []
 
     if not html_string:
         logger.debug("html_string is empty. Returning empty list...")
         return potential_a11y_issues
-    else:
-        logger.debug("html string not empty. Extracting now...")
-    soup = BeautifulSoup(html_string, 'html.parser')
+    logger.debug("html string not empty. Extracting now...")
+    soup = BeautifulSoup(html_string, "html.parser")
 
-    for a_tag in soup.find_all('a', href=True):
-        link_url = a_tag['href']
+    for a_tag in soup.find_all("a", href=True):
+        link_url = a_tag["href"]
         link_text = a_tag.get_text(strip=True)
-        potential_a11y_issues.append({
-            "course_id": course_id,
-            "audit_status": "New Content",
-            "content-type": content_type,
-            "display_name": content_name,
-            "url": link_url,
-            "reason_extracted": "Link",
-            "canvas_flags": None,
-            "canvas_details": f"Link to: {href} (Link text: '{text}')",
-            "alt_text": "N/A",
-            "run_id": run_id,
-        })
+        potential_a11y_issues.append(
+            {
+                "course_id": course_id,
+                "audit_status": "New Content",
+                "content-type": content_type,
+                "display_name": content_name,
+                "url": link_url,
+                "reason_extracted": "Link",
+                "canvas_flags": None,
+                "canvas_details": f"Link to: {link_url} (Link text: '{link_text}')",
+                "alt_text": "N/A",
+                "run_id": run_id,
+            },
+        )
 
-    for img_tag in soup.find_all('img', src=True):
-        img_src = img_tag.get('src','')
-        alt_text = img_tag.get('alt', '')
+    for img_tag in soup.find_all("img", src=True):
+        img_src = img_tag.get("src", "")
+        alt_text = img_tag.get("alt", "")
         if not alt_text:
             issue = "Image Missing Alt Text"
-        elif alt_text.strip() == "":
+        elif not alt_text.strip():
             issue = "Image With Empty Alt Text"
         else:
             issue = "Check Quality of Alt Text"
-            logger.info(f"Alt text found for {content_name}. May want to check quality of alt text.")
-        potential_a11y_issues.append({
-            "course_id": course_id,
-            "audit_status": "New Content",
-            "content-type": content_type,
-            "display_name": content_name,
-            "url": content_url,
-            "reason_extracted": "Image",
-            "canvas_flags": issue,
-            "canvas_details": f"Image source: {img_src}",
-            "alt_text": alt_text,
-            "run_id": run_id,
-        })
+            logger.info(
+                f"Alt text found for {content_name}. May want to check quality of alt text.",
+            )
+        potential_a11y_issues.append(
+            {
+                "course_id": course_id,
+                "audit_status": "New Content",
+                "content-type": content_type,
+                "display_name": content_name,
+                "url": content_url,
+                "reason_extracted": "Image",
+                "canvas_flags": issue,
+                "canvas_details": f"Image source: {img_src}",
+                "alt_text": alt_text,
+                "run_id": run_id,
+            },
+        )
 
-    for iframe in soup.find_all('iframe'):
-        potential_a11y_issues.append({
-            "course_id": course_id,
-            "audit_status": "New Content",
-            "content-type": content_type,
-            "display_name": content_name,
-            "url": content_url,
-            "reason_extracted": "Embedded Media (Video)",
-            "canvas_flags": "May require manual caption check",
-            "canvas_details": f"May require manual caption check {iframe['src']}",
-            "alt_text": "N/A",
-            "run_id": run_id,
-        })
+    for iframe in soup.find_all("iframe"):
+        potential_a11y_issues.append(
+            {
+                "course_id": course_id,
+                "audit_status": "New Content",
+                "content-type": content_type,
+                "display_name": content_name,
+                "url": content_url,
+                "reason_extracted": "Embedded Media (Video)",
+                "canvas_flags": "May require manual caption check",
+                "canvas_details": f"May require manual caption check {iframe['src']}",
+                "alt_text": "N/A",
+                "run_id": run_id,
+            },
+        )
 
-    for video_tag in soup.find_all('video', src=True):
-        potential_a11y_issues.append({
-            "course_id": course_id,
-            "audit_status": "New Content",
-            "content-type": content_type,
-            "display_name": content_name,
-            "url": content_url,
-            "reason_extracted": "Embedded Media (Video)",
-            "canvas_flags": "May require manual caption check",
-            "canvas_details": f"May require manual caption check {video_tag['src']}",
-            "alt_text": "N/A",
-            "run_id": run_id,
-        })
+    for video_tag in soup.find_all("video", src=True):
+        potential_a11y_issues.append(
+            {
+                "course_id": course_id,
+                "audit_status": "New Content",
+                "content-type": content_type,
+                "display_name": content_name,
+                "url": content_url,
+                "reason_extracted": "Embedded Media (Video)",
+                "canvas_flags": "May require manual caption check",
+                "canvas_details": f"May require manual caption check {video_tag['src']}",
+                "alt_text": "N/A",
+                "run_id": run_id,
+            },
+        )
 
-    for audio_tag in soup.find_all('audio', src=True):
-        potential_a11y_issues.append({
-            "course_id": course_id,
-            "audit_status": "New Content",
-            "content-type": content_type,
-            "display_name": content_name,
-            "url": content_url,
-            "reason_extracted": "Embedded Media (Audio)",
-            "canvas_flags": "May require manual caption check",
-            "canvas_details": f"May require manual transcript check {audio_tag['src']}",
-            "alt_text": "N/A",
-            "run_id": run_id,
-        })
+    for audio_tag in soup.find_all("audio", src=True):
+        potential_a11y_issues.append(
+            {
+                "course_id": course_id,
+                "audit_status": "New Content",
+                "content-type": content_type,
+                "display_name": content_name,
+                "url": content_url,
+                "reason_extracted": "Embedded Media (Audio)",
+                "canvas_flags": "May require manual caption check",
+                "canvas_details": f"May require manual transcript check {audio_tag['src']}",
+                "alt_text": "N/A",
+                "run_id": run_id,
+            },
+        )
     logger.debug(len(potential_a11y_issues))
     return potential_a11y_issues
+
 
 # =============================================================================
 # FUNCTIONS - Download Course Report from Ally
 # =============================================================================
-logger.catch("There was an error getting the session cookie: ")
+@logger.catch("There was an error getting the session cookie: ")
 def get_ally_session_cookie(config_dict: dict) -> str:
     """
     Retrieve session cookie from Ally institutional reporting dashboard.
@@ -415,7 +471,8 @@ def get_ally_session_cookie(config_dict: dict) -> str:
     secret = ally_config.get("secret")
 
     if not key or not secret:
-        raise ValueError("Missing 'key' or 'secret' in the [ally] section of your config.")
+        error_message = "Session Cookie not found. Check 'key' & 'secret' in config.toml."
+        raise ValueError(error_message)
 
     target_url = "https://prod.ally.ac/report/11637"
 
@@ -429,8 +486,8 @@ def get_ally_session_cookie(config_dict: dict) -> str:
         page.goto(target_url)
 
         # Selectors based on your provided HTML
-        page.fill('#key', key)
-        page.fill('#secret', secret)
+        page.fill("#key", key)
+        page.fill("#secret", secret)
         page.click('button[type="submit"]')
 
         # 3. Wait/Poll for Cookie
@@ -442,7 +499,7 @@ def get_ally_session_cookie(config_dict: dict) -> str:
             cookies = context.cookies()
             ally_cookie = next(
                 (c for c in cookies if "ally.ac" in c["domain"] and "session" in c["name"]),
-                None
+                None,
             )
             if ally_cookie:
                 break
@@ -454,12 +511,17 @@ def get_ally_session_cookie(config_dict: dict) -> str:
             success_message = f"{ally_cookie['name']}={ally_cookie['value']}"
             logger.success(success_message)
             return success_message
-        else:
-            raise ValueError("Failed to retrieve Ally session cookie. Check Key/Secret credentials.")
+        error_message = "Failed to retrieve Ally session cookie. Check Key/Secret credentials."
+        raise ValueError(error_message)
 
 
 @logger.catch()
-def trigger_ally_export(course_id: str, config_dict: dict, cookie_string:str) -> str:
+def trigger_ally_export(
+    course_id: str,
+    config_dict: dict,
+    cookie_string: str,
+    retries: int = 3,
+) -> str:
     """Trigger the Ally CSV export via API and retrieve the S3 download URL.
 
     Uses the exposed API endpoint normally activated by clicking the export
@@ -481,57 +543,74 @@ def trigger_ally_export(course_id: str, config_dict: dict, cookie_string:str) ->
 
     Raises
     ------
+    ValueError
+        If Ally configuration parameters are missing.
     requests.HTTPError
         If the API call fails or times out after retries.
     KeyError
         If the response does not contain the expected 'url'.
+    requests.exceptions.Timeout
+        If the response times out after {retries} retries.
     """
     ally_config = config_dict.get("ally", {})
     region = ally_config.get("region")
     client_id = ally_config.get("client_id")
-    token = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M")
+    token = datetime.now(tz=tz.tzlocal()).strftime("%Y-%m-%d-%H-%M")
 
     if not all([client_id, token, cookie_string]):
-        raise ValueError("Missing Ally configuration parameters (client_id or cookie_string).")
+        error_message = "Missing Ally configuration parameters (client_id or cookie_string)."
+        raise ValueError(error_message)
 
     base_url = f"https://{region}/api/v1/{client_id}/reports/courses/{course_id}/csv"
     params = {"token": token}
     headers = {"Cookie": cookie_string}
 
-    logger.info(f"Triggering Ally report export for course {course_id} (Token: {token})...")
+    status_success = 200
+    status_processing = 202
 
-    retries = 3
+    logger.info(
+        f"Triggering Ally report export for course {course_id} (Token: {token})...",
+    )
+
     for attempt in range(retries):
         response = requests.get(base_url, params=params, headers=headers)
 
-        if response.status_code == 200:
+        if response.status_code == status_success:
             logger.success("Ally report is ready.")
             data = response.json()
             return data["url"]
 
-        elif response.status_code == 202:
-            logger.info(f"Report processing (202). Retrying in 5 seconds... ({attempt + 1}/{retries})")
+        if response.status_code == status_processing:
+            logger.info(
+                f"Report processing (202). Retrying in 5 seconds... ({attempt + 1}/{retries})",
+            )
             time.sleep(5)
             continue
 
-        else:
-            response.raise_for_status()
-
-    raise requests.exceptions.Timeout(f"Ally report processing timed out after {retries} retries.")
+        response.raise_for_status()
+    error_message = f"Ally report processing timed out after {retries} retries."
+    raise requests.exceptions.Timeout(error_message)
 
 
 @logger.catch()
-def download_s3_file(s3_url: str, course_id: str, download_dir: str) -> Path:
+def download_s3_file(
+    s3_url: str,
+    course_id: str,
+    download_dir: str,
+    min_file_size: int = 1000,
+) -> Path:
     """Download course report from S3 URL and save to the specified directory.
 
     Parameters
     ----------
-    s3_url : str
+    s3_url: str
         The signed S3 URL created by trigger_ally_export.
     course_id: str
         Unique Canvas identifier for the course. (Used for naming file.)
-    download_dir : str
+    download_dir: str
         Directory to save the report.
+    min_file_size: str, optional
+        Minimum file size to be presumed more than just an error message.
 
     Returns
     -------
@@ -543,7 +622,7 @@ def download_s3_file(s3_url: str, course_id: str, download_dir: str) -> Path:
     ValueError
         If the downloaded file is suspiciously small, suggesting an error.
     """
-    date_time = datetime.datetime.now().strftime("%Y%m%d%H%M")
+    date_time = datetime.now(tz=tz.tzlocal()).strftime("%Y-%m-%d-%H-%M").strftime("%Y%m%d%H%M")
     save_path = Path(download_dir)
     save_path.mkdir(parents=True, exist_ok=True)
     file_path = save_path / f"ally_{course_id}_{date_time}.csv"
@@ -555,17 +634,19 @@ def download_s3_file(s3_url: str, course_id: str, download_dir: str) -> Path:
 
     with requests.get(s3_url, headers=headers, stream=True) as r:
         r.raise_for_status()
-        with open(file_path, 'wb') as f:
-            for chunk in r.iter_content(chunk_size=8192):
-                f.write(chunk)
+        with Path(file_path).open("wb") as f:
+            f.writelines(r.iter_content(chunk_size=8192))
 
     # Data Integrity Check
     file_size = file_path.stat().st_size
-    if file_size <= 1000:
-        logger.error(f"Downloaded file is suspiciously small ({file_size} bytes). Likely an S3 XML error.")
-        raise ValueError("Downloaded file integrity check failed (size < 1000 bytes).")
-
-    logger.success(f"Successfully downloaded Ally report: {file_path} ({file_size} bytes)")
+    if file_size <= min_file_size:
+        logger.error(
+            f"Downloaded file is suspiciously small ({file_size} bytes). Likely an S3 XML error.",
+        )
+        error_message = "Downloaded file integrity check failed (size < 1000 bytes)."
+        raise ValueError(error_message)
+    success_message = f"Successfully downloaded Ally report: {file_path} ({file_size} bytes)"
+    logger.success(success_message)
     return file_path
 
 
@@ -592,30 +673,29 @@ def get_ally_report(course_id: str, config_dict: dict) -> Path:
     logger.info(f"Starting Ally report retrieval for Course ID: {course_id}")
 
     # Get download directory from config or default
-    download_dir = config_dict.get("ally", {}).get("download_dir", "./downloads/ally_reports")
+    download_dir = config_dict.get("ally", {}).get(
+        "download_dir",
+        "./downloads/ally_reports",
+    )
     session_cookie = get_ally_session_cookie(config_dict)
 
     s3_url = trigger_ally_export(course_id, config_dict, session_cookie)
-    csv_path = download_s3_file(s3_url, course_id, download_dir)
+    return download_s3_file(s3_url, course_id, download_dir)
 
-    return csv_path
 
 # =============================================================================
 # FUNCTIONS - DataFrame Creation
 # =============================================================================
 @logger.catch("Failed to craete Canvas api DataFrame")
 def create_canvas_data_df(
-    config_dict: dict,
-    course_file_data: list[dict[str,str]],
-    potential_a11y_issues: list[dict[str,str]],
-    dtypebackend = "pyarrow"
-    ) -> DataFrame:
+    course_file_data: list[dict[str, str]],
+    potential_a11y_issues: list[dict[str, str]],
+    dtypebackend: str = "pyarrow",
+) -> DataFrame:
     """Create a DataFrame of canvas items with potential accessibility issues.
 
     Parameters
     ----------
-    config_dict: dict
-        Dictionary containing all rules, equivalencies, and settings
     course_file_data: list[dict[str,str|int]]
         List of dictionaries, with each dictionary corresponding to a single
         file in the course site that may have accessibility issues.
@@ -635,14 +715,10 @@ def create_canvas_data_df(
     potential_a11y_issues.extend(course_file_data)
     logger.debug(len(potential_a11y_issues))
 
-    # drop_cols = config_dict.get("canvas").get("drop_columns")
-
     logger.info("Initializing DataFrame")
-    canvas_df: DataFrame = (
-        pd.DataFrame(potential_a11y_issues)
-        .convert_dtypes(dtype_backend=dtypebackend)
-        )
-    # canvas_df = canvas_df.drop(drop_cols,axis=columns) I think this is now not needed.
+    canvas_df: DataFrame = pd.DataFrame(potential_a11y_issues).convert_dtypes(
+        dtype_backend=dtypebackend,
+    )
     logger.debug(canvas_df.shape)
     return canvas_df
 
@@ -653,9 +729,10 @@ def create_canvas_data_df(
 def create_ally_df(
     file_path: str,
     dtypebackend: str = "pyarrow",
+    *,
     use_columns: list[str] | None = None,
     show_deleted: bool = False,
-    ) -> DataFrame:
+) -> DataFrame:
     """Create a Pandas DataFrame from a downloaded Ally course report.
 
     Parameters
@@ -690,7 +767,7 @@ def create_ally_df(
         raise
     # ally_df[["Item type","id"]]=ally_df["Id"].str.split(":",expand=True)
     # ally_df=ally_df.set_index("id")
-    if show_deleted == True:
+    if show_deleted:
         logger.debug(ally_df.shape)
         return ally_df
     logger.debug(f"shape of ally_df = {ally_df.shape}")
@@ -698,7 +775,7 @@ def create_ally_df(
 
 
 @logger.catch()
-def clean_ally_df(ally_df:DataFrame, config_dict:dict) -> DataFrame:
+def clean_ally_df(ally_df: DataFrame, config_dict: dict) -> DataFrame:
     """
     Make Ally DataFrame more useful for review and tracking of remediation.
 
@@ -724,29 +801,27 @@ def clean_ally_df(ally_df:DataFrame, config_dict:dict) -> DataFrame:
     """
     flags = config_dict.get("ally").get("flag_columns")
     if not flags:
-        raise ValueError("No flag columns found in the configuration.")
+        error_message = "No flag columns found in the configuration."
+        raise ValueError(error_message)
 
     flagged_df = ally_df[flags]
     flagged_df = flagged_df[flagged_df == 1]
     flag_list = (
-    flagged_df
-    .reset_index()
-    .melt(id_vars='index', value_vars=flags)
-    .dropna()
-    .groupby("index")["variable"]
-    .agg(", ".join)
+        flagged_df.reset_index()
+        .melt(id_vars="index", value_vars=flags)
+        .dropna()
+        .groupby("index")["variable"]
+        .agg(", ".join)
     )
-    ally_df['Flags'] = ally_df.index.map(flag_list)
-    clean_ally_df = ally_df.drop(columns=flags)
-    return clean_ally_df
+    ally_df["Flags"] = ally_df.index.map(flag_list)
+    return ally_df.drop(columns=flags)
 
 
 @logger.catch(message="Failed to join DataFrames. See traceback for details.")
 def join_data_sources(
     canvas_df: DataFrame,
     ally_df: DataFrame,
-    drop_cols: list[str] | None = None,
-    ) -> DataFrame:
+) -> DataFrame:
     """Join Ally and Canvas DataFrames on their corresponding file name columns.
 
     Parameters
@@ -755,9 +830,6 @@ def join_data_sources(
         DataFrame of all files from Canvas course site. (Could also be all content from canvas if you create it right.)
     ally_df: DataFrame
         DataFrame of all content in Canvas course site that Ally has checked for accessibility.
-    drop_cols: list[str], optional
-        List of columns you want to drop from the final DataFrame.
-        By default, None.
 
     Returns
     -------
@@ -765,24 +837,20 @@ def join_data_sources(
         A pandas DataFrame that combines the data from Canvas and Ally.
 
     """
-    joint_df = pd.merge(
-        canvas_df.copy(),
+    joint_df = canvas_df.copy().merge(
         ally_df.copy(),
         on="display_name",
         how="outer",
     )
     logger.debug(f"shape of joint_df = {joint_df.shape}")
     logger.debug(f"info for joint_df: {joint_df.info()}")
-    return (joint_df
-            # .dropna(subset="Score") I think this might lose some important things now...
-            # .drop(drop_cols,axis="columns",)
-            )
+    return joint_df
 
 
 @logger.catch(
     message="Failed to write {df} to CSV. See trackeback for details.",
 )
-def save_as_csv(df: DataFrame,file_path: Path | str) -> None:
+def save_as_csv(df: DataFrame, file_path: Path | str) -> None:
     """
     Save the joint DataFrame as a csv.
 
@@ -797,8 +865,7 @@ def save_as_csv(df: DataFrame,file_path: Path | str) -> None:
     -------
     None
     """
-    date_time = datetime.datetime.now().strftime("%Y%m%d%H%M")
-    df.loc[df["Score"].notna(),"Score"] = df.loc[df["Score"].notna(),"Score"] * 100
+    df.loc[df["Score"].notna(), "Score"] *= 100
     return df.to_csv(
         file_path,
         na_rep="",
@@ -806,14 +873,15 @@ def save_as_csv(df: DataFrame,file_path: Path | str) -> None:
         float_format="%.2f",
     )
 
-# TODO Use conditional to skip parse-extract func w/files.
-# TODO Move some of this doc string to the README?
+
+# TODO: Use conditional to skip parse-extract func w/files.
+# TODO: Move some of this doc string to the README?
 @logger.catch()
 def main(
     config_path: Path = CONFIG_FILE,
-    run_id: int = int(datetime.datetime.now().timestamp()),
-    storage_file_path: str | Path = f"accessibility_review_{date_time}.csv"
-    ) -> str:
+    run_id: int = RUN_ID,
+    storage_file_path: str | Path = f"accessibility_review_{RUN_ID}.csv",
+) -> str:
     """
     Orchestrates the process of extracting, cleaning, and saving course data.
 
@@ -829,10 +897,10 @@ def main(
         By default, CONFIG_FILE
     run_id : int, optional
         Unique program identifier for this run of the program.
-        By default, int(datetime.datetime.now().timestamp())
+        By default, RUN_ID
     storage_file_path : str | Path, optional
         String or Path object pointing to the config file.
-        By default, f"accessibility_review_{date_time}.csv"
+        By default, f"accessibility_review_{RUN_ID}.csv"
 
     Returns
     -------
@@ -849,15 +917,29 @@ def main(
     course_content_dict = fetch_course_content(course_obj, config)
 
     course_files = course_content_dict.get("Files")
-    course_file_data = parse_course_file_data(course_files,course_id, run_id)
+    course_file_data = parse_course_file_data(course_files, course_id, run_id)
 
     potential_a11y_issues = []
-    for content_type,course_content in course_content_dict.items():
+    for content_type, course_content in course_content_dict.items():
         if content_type != "Files":
-            html_string,content_name = extract_html(course_content,content_type,config)
-            content_type_a11y_issues = parse_html_content(html_string,course_id,content_type,content_name,"URL_PLACEHOLDER")
+            html_string, content_name = extract_html(
+                course_content,
+                content_type,
+                config,
+            )
+            content_type_a11y_issues = parse_html_content(
+                html_string,
+                course_id,
+                content_type,
+                content_name,
+                "URL_PLACEHOLDER",
+            )
             potential_a11y_issues.extend(content_type_a11y_issues)
-    canvas_df = create_canvas_data_df(config,course_file_data,potential_a11y_issues)
+    canvas_df = create_canvas_data_df(
+        config,
+        course_file_data,
+        potential_a11y_issues,
+    )
 
     try:
         ally_csv_path = get_ally_report(course_id, config)
@@ -870,7 +952,7 @@ def main(
 
     drop_joint_columns = config.get("joint").get("drop_columns")
     joint_df = join_data_sources(canvas_df, ally_df, drop_joint_columns)
-    save_as_csv(joint_df,storage_file_path)
+    save_as_csv(joint_df, storage_file_path)
     success_message = f"Congratulations! Accessibility Review File created: {storage_file_path}!"
     logger.success(success_message)
     return success_message
@@ -881,4 +963,4 @@ def main(
 # =============================================================================
 if __name__ == "__main__":
     success_message = main()
-    print(success_message)
+    print(success_message)  # noqa: T201
