@@ -81,7 +81,7 @@ _file_logger = logger.add(
 # =============================================================================
 PROJECT_ROOT = Path(__file__).parent.parent
 CONFIG_FILE = PROJECT_ROOT / "config.toml"
-RUN_ID: int = int(datetime.now(tz=tz.local()).timestamp())
+RUN_ID: int = int(datetime.now(tz=tz.tzlocal()).timestamp())
 
 # Import Credentials from .env
 _ = load_dotenv()
@@ -210,7 +210,6 @@ def fetch_course_content(course: Course, config_dict: dict) -> dict:
 def parse_course_file_data(
     course_files: PaginatedList[File],
     course_id: str,
-    run_id: int,
 ) -> list[dict[str, str]]:
     """Extract and organize important data about course files.
 
@@ -220,8 +219,6 @@ def parse_course_file_data(
         PaginatedList of File objects assembled by CanvasAPI library.
     course_id: str
         Unique Canvas identifier for the course you are reviewing.
-    run_id: int
-        Unique program identifier for this run of the program.
 
     Returns
     -------
@@ -234,7 +231,7 @@ def parse_course_file_data(
     course_file_data = [
         {
             "course_id": course_id,
-            "audit_status": "New Content",
+            "audit_status": "Unverified",
             "content-type": "File",
             "display_name": file.__dict__.get("display_name"),
             "url": file.__dict__.get("url"),
@@ -242,7 +239,7 @@ def parse_course_file_data(
             "canvas_flags": "See Ally",
             "canvas_details": "See Ally",
             "alt_text": "N/A",
-            "run_id": run_id,
+            "run_id": RUN_ID,
         }
         for file in course_files
     ]
@@ -265,8 +262,8 @@ def extract_html(course_content, content_type: str, config_dict: dict) -> str:
         String alias for the content type you want to fetch. Acceptable inputs:
         - 'pages'
         - 'assignments'
-        - 'quizzes'
         - 'discussions'
+        - 'quizzes'
     config_dict: dict
         Dictionary containing all rules, equivalencies, and settings
 
@@ -299,7 +296,6 @@ def extract_html(course_content, content_type: str, config_dict: dict) -> str:
 def parse_html_content(
     html_string: str,
     course_id: str,
-    run_id: int,
     content_type: str,
     content_name: str,
     content_url: str,
@@ -316,8 +312,6 @@ def parse_html_content(
         Raw HTML extracted from a course content object.
     course_id: str
         Unique Canvas identifier for the course you are reviewing.
-    run_id: int
-        Unique program identifier for this run of the program.
     content_type: str
         Type of content that contains the HTML data.
     content_name: str
@@ -353,7 +347,7 @@ def parse_html_content(
                 "canvas_flags": None,
                 "canvas_details": f"Link to: {link_url} (Link text: '{link_text}')",
                 "alt_text": "N/A",
-                "run_id": run_id,
+                "run_id": RUN_ID,
             },
         )
 
@@ -380,7 +374,7 @@ def parse_html_content(
                 "canvas_flags": issue,
                 "canvas_details": f"Image source: {img_src}",
                 "alt_text": alt_text,
-                "run_id": run_id,
+                "run_id": RUN_ID,
             },
         )
 
@@ -396,7 +390,7 @@ def parse_html_content(
                 "canvas_flags": "May require manual caption check",
                 "canvas_details": f"May require manual caption check {iframe['src']}",
                 "alt_text": "N/A",
-                "run_id": run_id,
+                "run_id": RUN_ID,
             },
         )
 
@@ -412,7 +406,7 @@ def parse_html_content(
                 "canvas_flags": "May require manual caption check",
                 "canvas_details": f"May require manual caption check {video_tag['src']}",
                 "alt_text": "N/A",
-                "run_id": run_id,
+                "run_id": RUN_ID,
             },
         )
 
@@ -428,7 +422,7 @@ def parse_html_content(
                 "canvas_flags": "May require manual caption check",
                 "canvas_details": f"May require manual transcript check {audio_tag['src']}",
                 "alt_text": "N/A",
-                "run_id": run_id,
+                "run_id": RUN_ID,
             },
         )
     logger.debug(len(potential_a11y_issues))
@@ -879,7 +873,6 @@ def save_as_csv(df: DataFrame, file_path: Path | str) -> None:
 @logger.catch()
 def main(
     config_path: Path = CONFIG_FILE,
-    run_id: int = RUN_ID,
     storage_file_path: str | Path = f"accessibility_review_{RUN_ID}.csv",
 ) -> str:
     """
@@ -895,9 +888,6 @@ def main(
     config_path : Path, optional
         Path object pointing to the config file.
         By default, CONFIG_FILE
-    run_id : int, optional
-        Unique program identifier for this run of the program.
-        By default, RUN_ID
     storage_file_path : str | Path, optional
         String or Path object pointing to the config file.
         By default, f"accessibility_review_{RUN_ID}.csv"
@@ -917,7 +907,7 @@ def main(
     course_content_dict = fetch_course_content(course_obj, config)
 
     course_files = course_content_dict.get("Files")
-    course_file_data = parse_course_file_data(course_files, course_id, run_id)
+    course_file_data = parse_course_file_data(course_files, course_id, RUN_ID)
 
     potential_a11y_issues = []
     for content_type, course_content in course_content_dict.items():

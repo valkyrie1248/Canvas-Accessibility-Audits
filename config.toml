@@ -63,6 +63,15 @@ drop_columns = [
 
 
 [content_types]
+# [content_types.Courses]
+# title_field = "name"
+# url_field = "url"
+# id_field = "id"
+# published_field = "workflow_state"
+# term_field = "enrollment_term_id"
+# html_field = "syllabus_body"
+# keyword_params = {}
+
 [content_types.Pages]
 method = "get_pages"
 html_field = "body"
@@ -73,17 +82,17 @@ published_field = "published"
 hidden_field = "hide_from_students"
 keyword_params = { include = ["body"] } # TOML supports inline dictionaries!
 
-[content_types.Files]
-method = "get_files"
-html_field = "N/A"
-title_field = "display_name"
-file_type_field = "content_type"
-mime_type_field = "mime_class"
-url_field = "url"
-id_field = "id"
-hidden_field = "hidden"
-folder_field = "folder_id" # Could be used to connect to parent folder...
-keyword_params = {}
+# [content_types.Files]
+# method = "get_files"
+# html_field = "N/A"
+# title_field = "display_name"
+# file_type_field = "content_type"
+# mime_type_field = "mime_class"
+# url_field = "url"
+# id_field = "id"
+# hidden_field = "hidden"
+# folder_field = "folder_id" # Could be used to connect to parent folder...
+# keyword_params = {}
 
 [content_types.Assignments]
 method = "get_assignments"
@@ -94,7 +103,7 @@ id_field = "id"
 published_field = "published"
 visbility_field = "assignment_visibility"
 discussion_topic_field = "discussion_topic"
-uses_rubric_field = ""use_rubric_for_grading"
+uses_rubric_field = "use_rubric_for_grading"
 rubric_field = "rubric"
 keyword_params = { include = ["assignment_visibility"]}
 
@@ -110,27 +119,28 @@ keyword_params = {}
 
 
 #Is there a url field?
-[content_types.Announcements]
-method = "get_announcements"
-html_field =  "message"
-title_field = "title"
-id_field = "id"
-keyword_params = { context_codes = ["{course_id}"]}
+# [content_types.Announcements]
+# method = "get_announcements"
+# html_field =  "message"
+# title_field = "title"
+# id_field = "id"
+# keyword_params = { context_codes = ["{course_id}"]}
 
 
 #Quizzes likely need to be handled differently
 
-[content_types.Quizzes]
-method = "get_quizzes"
-html_field = "description"
-title_field = "title"
-url_field = "html_url"
-published_field = "published"
-keyword_params = {}
 
-[content_types.QuizQuestions]
-method = "get_questions"
-html_field = "question_text"
-id_field = "id"
-quiz_id_field = "quiz_id"
-title_field = "question_name"
+# [content_types.Quizzes]
+# method = "get_quizzes"
+# html_field = "description"
+# title_field = "title"
+# url_field = "html_url"
+# published_field = "published"
+# keyword_params = {}
+
+# [content_types.QuizQuestions]
+# method = "get_questions"
+# html_field = "question_text"
+# id_field = "id"
+# quiz_id_field = "quiz_id"
+# title_field = "question_name"
