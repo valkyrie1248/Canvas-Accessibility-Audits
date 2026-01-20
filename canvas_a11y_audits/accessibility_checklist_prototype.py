@@ -1,10 +1,32 @@
-"""Retrieve and combine data for a single course from both ally and canvas."""
+"""Compiles a spreadsheet for course accessibility audits from both Canvas and Ally API data.
 
-import datetime
+Copyright (C) 2026  Jeremy Harper (valkyrie1248@protonmail.com).
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License as published by the Free
+Software Foundation, either version 3 of the License, or any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE.  See the GNU Affero General Public License for
+more details.
+
+You should have received a copy of the GNU Affero General Public License along
+with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+If your software can interact with users remotely through a computer network,
+you should also make sure that it provides a way for users to get its source.
+For example, if your program is a web application, its interface could display
+a "Source" link that leads users to an archive of the code.  There are many
+ways you could offer source, and different solutions will be better for
+different programs; see section 13 for the specific requirements.
+"""
+
 import os
 import sys
 import time
 import tomllib
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -12,12 +34,13 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from canvasapi import Canvas
+from dateutil import tz
 from dotenv import load_dotenv
 from loguru import logger
 from playwright.sync_api import sync_playwright
 
 if TYPE_CHECKING:
-    from canvasapi.course import Course
+    from canvasapi import Course
     from pandas.core.frame import DataFrame
 
 
@@ -58,16 +81,17 @@ _file_logger = logger.add(
 # =============================================================================
 PROJECT_ROOT = Path(__file__).parent.parent
 CONFIG_FILE = PROJECT_ROOT / "config.toml"
+RUN_ID: int = int(datetime.now(tz=tz.tzlocal()).timestamp())
 
 # Import Credentials from .env
-load_dotenv()
+_ = load_dotenv()
 
 # Canvas Credentials
-CANVAS_TOKEN = os.environ.get("canvas_token")
+CANVAS_TOKEN: str | None = os.environ.get("CANVAS_TOKEN")
 
 # Ally Credentials
-ALLY_KEY = os.environ.get("key")
-ALLY_SECRET = os.environ.get("secret")
+ALLY_KEY: str | None = os.environ.get("KEY")
+ALLY_SECRET: str | None = os.environ.get("SECRET")
 
 
 # =============================================================================
@@ -107,7 +131,9 @@ def load_config(config_path: Path) -> dict:
     message="Failed to initialize Canvas Course object. See traceback for details.",
 )
 def initialize_canvas_course(
-    config_dict: dict, course_id: str, canvas_token: str = CANVAS_TOKEN
+    config_dict: dict,
+    course_id: str,
+    canvas_token: str = CANVAS_TOKEN,
 ) -> DataFrame:
     """Initialize Canvas Course object.
 
@@ -174,7 +200,7 @@ def fetch_course_content(course: Course, config_dict: dict) -> dict:
 
 
 @logger.catch()
-def parse_course_file_data(course_files, course_id: str, run_id: int) -> list[dict[str, str]]:
+def parse_course_file_data(course_files, course_id: str) -> list[dict[str, str]]:
     """Extract and organize important data about course files.
 
     Parameters
@@ -183,8 +209,6 @@ def parse_course_file_data(course_files, course_id: str, run_id: int) -> list[di
         PaginatedList of File objects assembled by CanvasAPI library.
     course_id: str
         Unique Canvas identifier for the course you are reviewing.
-    run_id: int
-        Unique program identifier for this run of the program.
 
     Returns
     -------
@@ -207,8 +231,8 @@ def parse_course_file_data(course_files, course_id: str, run_id: int) -> list[di
                 "canvas_flags": "See Ally",
                 "canvas_details": "See Ally",
                 "alt_text": "N/A",
-                "run_id": run_id,
-            }
+                "run_id": RUN_ID,
+            },
         )
     logger.debug(len(course_file_data))
     return course_file_data
@@ -258,7 +282,6 @@ def extract_html(course_content, content_type, config) -> str:
 def parse_html_content(
     html_string: str,
     course_id: str,
-    run_id: int,
     content_type: str,
     content_name: str,
     content_url: str,
@@ -274,8 +297,6 @@ def parse_html_content(
         Raw HTML extracted from a course content object.
     course_id: str
         Unique Canvas identifier for the course you are reviewing.
-    run_id: int
-        Unique program identifier for this run of the program.
     content_type: str
         Type of content that contains the HTML data.
     content_name: str
@@ -311,8 +332,8 @@ def parse_html_content(
                 "canvas_flags": None,
                 "canvas_details": f"Link to: {href} (Link text: '{text}')",
                 "alt_text": "N/A",
-                "run_id": run_id,
-            }
+                "run_id": RUN_ID,
+            },
         )
 
     for img_tag in soup.find_all("img", src=True):
@@ -325,7 +346,7 @@ def parse_html_content(
         else:
             issue = "Check Quality of Alt Text"
             logger.info(
-                f"Alt text found for {content_name}. May want to check quality of alt text."
+                f"Alt text found for {content_name}. May want to check quality of alt text.",
             )
         potential_a11y_issues.append(
             {
@@ -338,8 +359,8 @@ def parse_html_content(
                 "canvas_flags": issue,
                 "canvas_details": f"Image source: {img_src}",
                 "alt_text": alt_text,
-                "run_id": run_id,
-            }
+                "run_id": RUN_ID,
+            },
         )
 
     for iframe in soup.find_all("iframe"):
@@ -354,8 +375,8 @@ def parse_html_content(
                 "canvas_flags": "May require manual caption check",
                 "canvas_details": f"May require manual caption check {iframe['src']}",
                 "alt_text": "N/A",
-                "run_id": run_id,
-            }
+                "run_id": RUN_ID,
+            },
         )
 
     for video_tag in soup.find_all("video", src=True):
@@ -370,8 +391,8 @@ def parse_html_content(
                 "canvas_flags": "May require manual caption check",
                 "canvas_details": f"May require manual caption check {video_tag['src']}",
                 "alt_text": "N/A",
-                "run_id": run_id,
-            }
+                "run_id": RUN_ID,
+            },
         )
 
     for audio_tag in soup.find_all("audio", src=True):
@@ -386,8 +407,8 @@ def parse_html_content(
                 "canvas_flags": "May require manual caption check",
                 "canvas_details": f"May require manual transcript check {audio_tag['src']}",
                 "alt_text": "N/A",
-                "run_id": run_id,
-            }
+                "run_id": RUN_ID,
+            },
         )
     logger.debug(len(potential_a11y_issues))
     return potential_a11y_issues
@@ -526,7 +547,7 @@ def trigger_ally_export(course_id: str, config_dict: dict, cookie_string: str) -
 
         if response.status_code == 202:
             logger.info(
-                f"Report processing (202). Retrying in 5 seconds... ({attempt + 1}/{retries})"
+                f"Report processing (202). Retrying in 5 seconds... ({attempt + 1}/{retries})",
             )
             time.sleep(5)
             continue
@@ -559,10 +580,9 @@ def download_s3_file(s3_url: str, course_id: str, download_dir: str) -> Path:
     ValueError
         If the downloaded file is suspiciously small, suggesting an error.
     """
-    date_time = datetime.datetime.now().strftime("%Y%m%d%H%M")
     save_path = Path(download_dir)
     save_path.mkdir(parents=True, exist_ok=True)
-    file_path = save_path / f"ally_{course_id}_{date_time}.csv"
+    file_path = save_path / f"ally_{course_id}_{RUN_ID}.csv"
 
     logger.info(f"Downloading S3 file to {file_path}...")
 
@@ -578,7 +598,7 @@ def download_s3_file(s3_url: str, course_id: str, download_dir: str) -> Path:
     file_size = file_path.stat().st_size
     if file_size <= 1000:
         logger.error(
-            f"Downloaded file is suspiciously small ({file_size} bytes). Likely an S3 XML error."
+            f"Downloaded file is suspiciously small ({file_size} bytes). Likely an S3 XML error.",
         )
         raise ValueError("Downloaded file integrity check failed (size < 1000 bytes).")
 
@@ -657,7 +677,7 @@ def create_canvas_data_df(
 
     logger.info("Initializing DataFrame")
     canvas_df: DataFrame = pd.DataFrame(potential_a11y_issues).convert_dtypes(
-        dtype_backend=dtypebackend
+        dtype_backend=dtypebackend,
     )
     # canvas_df = canvas_df.drop(drop_cols,axis=columns) I think this is now not needed.
     logger.debug(canvas_df.shape)
@@ -814,7 +834,6 @@ def save_as_csv(df: DataFrame, file_path: Path | str) -> None:
     -------
     None
     """
-    date_time = datetime.datetime.now().strftime("%Y%m%d%H%M")
     df.loc[df["Score"].notna(), "Score"] = df.loc[df["Score"].notna(), "Score"] * 100
     return df.to_csv(
         file_path,
@@ -829,8 +848,7 @@ def save_as_csv(df: DataFrame, file_path: Path | str) -> None:
 @logger.catch()
 def main(
     config_path: Path = CONFIG_FILE,
-    run_id: int = int(datetime.datetime.now().timestamp()),
-    storage_file_path: str | Path = f"accessibility_review_{date_time}.csv",
+    storage_file_path: str | Path = f"accessibility_review_{RUN_ID}.csv",
 ) -> str:
     """
     Orchestrates the process of extracting, cleaning, and saving course data.
@@ -845,12 +863,9 @@ def main(
     config_path : Path, optional
         Path object pointing to the config file.
         By default, CONFIG_FILE
-    run_id : int, optional
-        Unique program identifier for this run of the program.
-        By default, int(datetime.datetime.now().timestamp())
     storage_file_path : str | Path, optional
         String or Path object pointing to the config file.
-        By default, f"accessibility_review_{date_time}.csv"
+        By default, f"accessibility_review_{RUN_ID}.csv"
 
     Returns
     -------
@@ -867,14 +882,18 @@ def main(
     course_content_dict = fetch_course_content(course_obj, config)
 
     course_files = course_content_dict.get("Files")
-    course_file_data = parse_course_file_data(course_files, course_id, run_id)
+    course_file_data = parse_course_file_data(course_files, course_id)
 
     potential_a11y_issues = []
     for content_type, course_content in course_content_dict.items():
         if content_type != "Files":
             html_string, content_name = extract_html(course_content, content_type, config)
             content_type_a11y_issues = parse_html_content(
-                html_string, course_id, content_type, content_name, "URL_PLACEHOLDER"
+                html_string,
+                course_id,
+                content_type,
+                content_name,
+                "URL_PLACEHOLDER",
             )
             potential_a11y_issues.extend(content_type_a11y_issues)
     canvas_df = create_canvas_data_df(config, course_file_data, potential_a11y_issues)
