@@ -1,5 +1,6 @@
 [project]
 name = "canvas-a11y-audits"
+license = "GNU AGPLv3"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -19,7 +20,8 @@ dependencies = [
 [dependency-groups]
 dev = [
     "marimo>=0.19.2",
-    "pandas-stubs>=2.3.3.251219"
+    "pandas-stubs>=2.3.3.251219",
+    "python-dotenv>=1.2.1",
 ]
 lint = [
     "ruff>=0.14.11"
