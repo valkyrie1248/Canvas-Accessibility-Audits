@@ -228,22 +228,21 @@ def parse_course_file_data(
     """
     logger.info("Fetching course files data...")
 
-    course_file_data = []
-    for file in course_files:
-        course_file_data.append(
-            {
-                "course_id": course_id,
-                "audit_status": "New Content",
-                "content-type": "File",
-                "display_name": file.__dict__.get("display_name"),
-                "url": file.__dict__.get("url"),
-                "reason_extracted": file.__dict__.get("content-type"),
-                "canvas_flags": "See Ally",
-                "canvas_details": "See Ally",
-                "alt_text": "N/A",
-                "run_id": run_id,
-            }
-        )
+    course_file_data = [
+        {
+            "course_id": course_id,
+            "audit_status": "New Content",
+            "content-type": "File",
+            "display_name": file.__dict__.get("display_name"),
+            "url": file.__dict__.get("url"),
+            "reason_extracted": file.__dict__.get("content-type"),
+            "canvas_flags": "See Ally",
+            "canvas_details": "See Ally",
+            "alt_text": "N/A",
+            "run_id": RUN_ID,
+        }
+        for file in course_files
+    ]
     logger.debug(len(course_file_data))
     return course_file_data
 
@@ -457,12 +456,11 @@ def get_ally_session_cookie(config_dict: dict) -> str:
         If the session cookie is not found after the login attempt.
     """
     # 1. Retrieve credentials
-    ally_config = config_dict.get("ally", {})
-    key = ally_config.get("key")
-    secret = ally_config.get("secret")
+    key = ALLY_KEY
+    secret = ALLY_SECRET
 
     if not key or not secret:
-        error_message = "Session Cookie not found. Check 'key' & 'secret' in config.toml."
+        error_message = "Key or Secret not found. Check .env file."
         raise ValueError(error_message)
 
     target_url = "https://prod.ally.ac/report/11637"
@@ -502,14 +500,17 @@ def get_ally_session_cookie(config_dict: dict) -> str:
             success_message = f"{ally_cookie['name']}={ally_cookie['value']}"
             logger.success(success_message)
             return success_message
-        else:
-            raise ValueError(
-                "Failed to retrieve Ally session cookie. Check Key/Secret credentials."
-            )
+        error_message = "Failed to retrieve Ally session cookie. Check Key/Secret credentials."
+        raise ValueError(error_message)
 
 
 @logger.catch()
-def trigger_ally_export(course_id: str, config_dict: dict, cookie_string: str) -> str:
+def trigger_ally_export(
+    course_id: str,
+    config_dict: dict,
+    cookie_string: str,
+    retries: int = 10,
+) -> str:
     """Trigger the Ally CSV export via API and retrieve the S3 download URL.
 
     Uses the exposed API endpoint normally activated by clicking the export
@@ -568,11 +569,11 @@ def trigger_ally_export(course_id: str, config_dict: dict, cookie_string: str) -
             data = response.json()
             return data["url"]
 
-        elif response.status_code == 202:
+        if response.status_code == status_processing:
             logger.info(
-                f"Report processing (202). Retrying in 5 seconds... ({attempt + 1}/{retries})"
+                f"Report processing (202). Retrying in 10 seconds... ({attempt + 1}/{retries})",
             )
-            time.sleep(5)
+            time.sleep(10)
             continue
 
         response.raise_for_status()
@@ -626,11 +627,12 @@ def download_s3_file(
 
     # Data Integrity Check
     file_size = file_path.stat().st_size
-    if file_size <= 1000:
+    if file_size <= min_file_size:
         logger.error(
-            f"Downloaded file is suspiciously small ({file_size} bytes). Likely an S3 XML error."
+            f"Downloaded file is suspiciously small ({file_size} bytes). Likely an S3 XML error.",
         )
-        raise ValueError("Downloaded file integrity check failed (size < 1000 bytes).")
+        error_message = "Downloaded file integrity check failed (size < 1000 bytes)."
+        raise ValueError(error_message)
 
     logger.success(f"Successfully downloaded Ally report: {file_path} ({file_size} bytes)")
     return file_path
@@ -668,19 +670,15 @@ def get_ally_report(course_id: str, config_dict: dict) -> Path:
     s3_url = trigger_ally_export(course_id, config_dict, session_cookie)
     return download_s3_file(s3_url, course_id, download_dir)
 
+
 # =============================================================================
 # FUNCTIONS - DataFrame Creation
 # =============================================================================
 @logger.catch("Failed to craete Canvas api DataFrame")
 def create_canvas_data_df(
-    config_dict: dict,
     course_file_data: list[dict[str, str]],
     potential_a11y_issues: list[dict[str, str]],
     dtypebackend="pyarrow",
-) -> DataFrame:
-    course_file_data: list[dict[str, str]],
-    potential_a11y_issues: list[dict[str, str]],
-    dtypebackend: str = "pyarrow",
 ) -> DataFrame:
     """Create a DataFrame of canvas items with potential accessibility issues.
 
@@ -707,9 +705,8 @@ def create_canvas_data_df(
 
     logger.info("Initializing DataFrame")
     canvas_df: DataFrame = pd.DataFrame(potential_a11y_issues).convert_dtypes(
-        dtype_backend=dtypebackend
+        dtype_backend=dtypebackend,
     )
-    # canvas_df = canvas_df.drop(drop_cols,axis=columns) I think this is now not needed.
     logger.debug(canvas_df.shape)
     return canvas_df
 
@@ -761,8 +758,10 @@ def create_ally_df(
     if show_deleted:
         logger.debug(ally_df.shape)
         return ally_df
+
+    ally_df = ally_df.loc[ally_df["Deleted at"].isna()].drop(columns=["Deleted at", "Checked on"])
     logger.debug(f"shape of ally_df = {ally_df.shape}")
-    return ally_df.loc[ally_df["Deleted at"].isna()]
+    return ally_df
 
 
 @logger.catch()
@@ -805,22 +804,23 @@ def clean_ally_df(ally_df: DataFrame, config_dict: dict) -> DataFrame:
         .agg(", ".join)
     )
     ally_df["Flags"] = ally_df.index.map(flag_list)
-    clean_ally_df = ally_df.drop(columns=flags)
-    return clean_ally_df
+    cleaned_ally_df = ally_df.drop(columns=flags)
+    logger.debug(f"shape of cleeaned_ally_df = {cleaned_ally_df.shape}")
+    return cleaned_ally_df
 
 
 @logger.catch(message="Failed to join DataFrames. See traceback for details.")
 def join_data_sources(
     canvas_df: DataFrame,
     ally_df: DataFrame,
-    drop_cols: list[str] | None = None,
 ) -> DataFrame:
     """Join Ally and Canvas DataFrames on their corresponding file name columns.
 
     Parameters
     ----------
     canvas_df: DataFrame
-        DataFrame of all files from Canvas course site. (Could also be all content from canvas if you create it right.)
+        DataFrame of all files from Canvas course site.
+        (Could also be all content from canvas if you create it right.)
     ally_df: DataFrame
         DataFrame of all content in Canvas course site that Ally has checked for accessibility.
 
@@ -837,11 +837,7 @@ def join_data_sources(
     )
     logger.debug(f"shape of joint_df = {joint_df.shape}")
     logger.debug(f"info for joint_df: {joint_df.info()}")
-    return (
-        joint_df
-        # .dropna(subset="Score") I think this might lose some important things now...
-        # .drop(drop_cols,axis="columns",)
-    )
+    return joint_df
 
 
 @logger.catch(
@@ -862,8 +858,7 @@ def save_as_csv(df: DataFrame, file_path: Path | str) -> None:
     -------
     None
     """
-    date_time = datetime.datetime.now().strftime("%Y%m%d%H%M")
-    df.loc[df["Score"].notna(), "Score"] = df.loc[df["Score"].notna(), "Score"] * 100
+    df.loc[df["Score"].notna(), "Score"] *= 100
     return df.to_csv(
         file_path,
         na_rep="",
@@ -872,16 +867,9 @@ def save_as_csv(df: DataFrame, file_path: Path | str) -> None:
     )
 
 
-# TODO Use conditional to skip parse-extract func w/files.
-# TODO Move some of this doc string to the README?
-
-# TODO: Use conditional to skip parse-extract func w/files.
-# TODO: Move some of this doc string to the README?
 @logger.catch()
 def main(
     config_path: Path = CONFIG_FILE,
-    storage_file_path: str | Path = f"accessibility_review_{RUN_ID}.csv",
-) -> str:
     storage_file_path: str | Path = f"accessibility_review_{RUN_ID}.csv",
 ) -> str:
     """
@@ -912,33 +900,37 @@ def main(
     course_id = config.get("course_id")
 
     course_obj = initialize_canvas_course(config, course_id)
-
+    logger.info(course_obj)
     course_content_dict = fetch_course_content(course_obj, config)
-
+    logger.info(course_content_dict)
     course_files = course_content_dict.get("Files")
-    course_file_data = parse_course_file_data(course_files, course_id, run_id)
+    course_file_data = parse_course_file_data(course_files, course_id)
 
     potential_a11y_issues = []
     for content_type, course_content in course_content_dict.items():
         if content_type != "Files":
             html_string, content_name = extract_html(course_content, content_type, config)
             content_type_a11y_issues = parse_html_content(
-                html_string, course_id, content_type, content_name, "URL_PLACEHOLDER"
+                html_string,
+                course_id,
+                content_type,
+                content_name,
+                "URL_PLACEHOLDER",
             )
             potential_a11y_issues.extend(content_type_a11y_issues)
-    canvas_df = create_canvas_data_df(config, course_file_data, potential_a11y_issues)
+    canvas_df = create_canvas_data_df(course_file_data, potential_a11y_issues)
 
     try:
         ally_csv_path = get_ally_report(course_id, config)
     except Exception as e:
-        logger.error(f"Failed to download Ally report: {e}")
-        return "Process failed during Ally report download."
+        error_message = "Process failed during Ally report download."
+        logger.error(f"{error_message}: {e}")
+        return error_message
     ally_df = create_ally_df(
         ally_csv_path,
     ).pipe(clean_ally_df, config_dict=config)
 
-    drop_joint_columns = config.get("joint").get("drop_columns")
-    joint_df = join_data_sources(canvas_df, ally_df, drop_joint_columns)
+    joint_df = join_data_sources(canvas_df, ally_df)
     save_as_csv(joint_df, storage_file_path)
     success_message = f"Congratulations! Accessibility Review File created: {storage_file_path}!"
     logger.success(success_message)
