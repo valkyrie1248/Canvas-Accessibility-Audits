@@ -24,3 +24,5 @@ canvas_a11y_audits/__marimo__/
 # Other Local files
 audit_script_EXAMPLE.py
 .vscode/launch.json
+*mvp*
+canvas_a11y_audits/Accessibility_Checklist_mvp.py
