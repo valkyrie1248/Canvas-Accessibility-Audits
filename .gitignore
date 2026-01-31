@@ -15,11 +15,12 @@ canvas_a11y_audits/__marimo__/
 *.csv
 
 # Logs
-accessibility_checklist_generator.log
-expense_pipeline.log
-audit_script_EXAMPLE.py
+*.log
 *.DS_Store*
 
 # Secrets
 .env
-accessibility_checklist_generator.2026-01-20_19-28-31_867421.log
+
+# Other Local files
+audit_script_EXAMPLE.py
+.vscode/launch.json

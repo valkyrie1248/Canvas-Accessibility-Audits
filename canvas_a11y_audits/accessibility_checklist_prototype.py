@@ -64,7 +64,7 @@ _stderr_logger = logger.add(
     format="<green>{time:YYYY-MM-DD at HH:mm:ss}</green>| <level>{level}</level> | <level>{message}</level> | {extra}",
     backtrace=True,
     diagnose=True,
-    level="TRACE",
+    level="INFO",
 )
 _file_logger = logger.add(
     "accessibility_checklist_generator.log",
@@ -74,7 +74,7 @@ _file_logger = logger.add(
     format="<green>{time:YYYY-MM-DD at HH:mm:ss}</green>| <level>{level}</level> | <level>{message}</level> | {extra}",
     backtrace=True,
     diagnose=True,
-    level="TRACE",
+    level="INFO",
 )
 # =============================================================================
 # CONFIGURATION - Constants
@@ -198,11 +198,12 @@ def fetch_course_content(course: Course, config_dict: dict) -> dict:
         error_message = "Failed to load content types. Check config.toml."
         raise ValueError(error_message)
     for content_type, params in config_content_types.items():
-        logger.info(f"Fetching Canvas {content_type}")
         fetch_method = getattr(course, params["method"])
+        logger.debug(fetch_method)
         course_content_dict.update(
             {content_type: fetch_method(**params["keyword_params"])},
         )
+        logger.debug(f"course_content_dict now contains {course_content_dict}")
     return course_content_dict
 
 
@@ -244,6 +245,8 @@ def parse_course_file_data(
         for file in course_files
     ]
     logger.debug(len(course_file_data))
+    for i, item in enumerate(course_file_data):
+        logger.debug(f"Index {i}: {item}")
     return course_file_data
 
 
@@ -282,10 +285,26 @@ def extract_html(course_content, content_type: str, config_dict: dict) -> str:
     if not type_config:
         error_message = f"Unknown content type: {content_type}"
         raise ValueError(error_message)
+    html_data_dict = {}
+    html_attribute = type_config["html_field"]
+    for item in course_content:
+        html_string = getattr(item, html_attribute)
+        content_name = getattr(
+            course_content,
+            type_config["title_field"],
+            "Untitled",
+        )
+        new_key = content_name
+        suffix = 0
+        while new_key in html_data_dict:
+            new_key = f"{content_name}_suffix_{suffix}"
+            suffix += 1
+        html_data_dict[new_key] = html_string
+    return html_data_dict
 
-    html_string = getattr(course_content, type_config["html_field"], "")
-    content_name = getattr(course_content, type_config["title_field"], "Untitled")
-    return html_string, content_name
+
+# THIS IS A BIG NOTE SO YOU WON'T MISS IT!
+# Test this to see if it works. Think about how to
 
 
 @logger.catch()
@@ -700,8 +719,15 @@ def create_canvas_data_df(
         A DataFrame where each row is a single canvas item that may have an
         accessibility issue.
     """
+    for i, item in enumerate(potential_a11y_issues):
+        if not isinstance(item, dict):
+            logger.debug(f"Index {i} in potential_ally_issues is not a dict: {item}")
+    for i, item in enumerate(course_file_data):
+        if not isinstance(item, dict):
+            logger.debug(f"Index {i} in course_file_data is not a dict: {item}")
+    logger.info("Initializing DataFrame")
     potential_a11y_issues.extend(course_file_data)
-    logger.debug(len(potential_a11y_issues))
+    log_message = f"{len(potential_a11y_issues)} potential accessibility issues"
 
     logger.info("Initializing DataFrame")
     canvas_df: DataFrame = pd.DataFrame(potential_a11y_issues).convert_dtypes(
@@ -909,16 +935,24 @@ def main(
     potential_a11y_issues = []
     for content_type, course_content in course_content_dict.items():
         if content_type != "Files":
-            html_string, content_name = extract_html(course_content, content_type, config)
-            content_type_a11y_issues = parse_html_content(
-                html_string,
-                course_id,
+            html_data_dict = extract_html(
+                course_content,
                 content_type,
-                content_name,
-                "URL_PLACEHOLDER",
+                config,
             )
-            potential_a11y_issues.extend(content_type_a11y_issues)
-    canvas_df = create_canvas_data_df(course_file_data, potential_a11y_issues)
+            for content_name, html_string in html_data_dict.items():
+                content_type_a11y_issues = parse_html_content(
+                    html_string,
+                    course_id,
+                    content_type,
+                    content_name,
+                    "URL_PLACEHOLDER",
+                )
+                potential_a11y_issues.extend(content_type_a11y_issues)
+    canvas_df = create_canvas_data_df(
+        course_file_data,
+        potential_a11y_issues,
+    )
 
     try:
         ally_csv_path = get_ally_report(course_id, config)
