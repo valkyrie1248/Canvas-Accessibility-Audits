@@ -303,10 +303,6 @@ def extract_html(course_content, content_type: str, config_dict: dict) -> str:
     return html_data_dict
 
 
-# THIS IS A BIG NOTE SO YOU WON'T MISS IT!
-# Test this to see if it works. Think about how to
-
-
 @logger.catch()
 def parse_html_content(
     html_string: str,
