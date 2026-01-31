@@ -48,23 +48,23 @@ def _(Path, datetime, load_dotenv, logger, os, pd, sys, tz):
     # =============================================================================
     logger.remove()
     _stderr_logger = logger.add(
-        sys.stdout,
+        sys.stderr,
         colorize=True,
         format="<green>{time:YYYY-MM-DD at HH:mm:ss}</green>| <level>{level}</level> | <level>{message}</level> | {extra}",
-        # backtrace=True,
-        # diagnose=True,
+        backtrace=True,
+        diagnose=True,
         level="TRACE",
     )
-    # _file_logger = logger.add(
-    #     "accessibility_checklist_generator.log",
-    #     colorize=True,
-    #     rotation="1 week",
-    #     retention=5,
-    #     format="<green>{time:YYYY-MM-DD at HH:mm:ss}</green>| <level>{level}</level> | <level>{message}</level> | {extra}",
-    #     backtrace=True,
-    #     diagnose=True,
-    #     level="TRACE",
-    # )
+    _file_logger = logger.add(
+        "accessibility_checklist_generator.log",
+        colorize=True,
+        rotation="1 week",
+        retention=5,
+        format="<green>{time:YYYY-MM-DD at HH:mm:ss}</green>| <level>{level}</level> | <level>{message}</level> | {extra}",
+        backtrace=True,
+        diagnose=True,
+        level="TRACE",
+    )
     # =============================================================================
     # CONFIGURATION - Constants
     # =============================================================================
@@ -105,7 +105,12 @@ def _():
         save_as_csv,
         main,
     )
-    return fetch_course_content, initialize_canvas_course, load_config
+    return (
+        fetch_course_content,
+        initialize_canvas_course,
+        load_config,
+        parse_course_file_data,
+    )
 
 
 @app.cell
@@ -117,67 +122,72 @@ def _(
     logger,
 ):
     """Orchestrate the retrieval and combining of Ally and Canvas data."""
+
     logger.info("Starting program...")
     config = load_config(CONFIG_FILE)
     course_id = config.get("course_id")
 
-    course_obj = initialize_canvas_course(config,course_id)
+    course_obj = initialize_canvas_course(config, course_id)
 
     course_content_dict = fetch_course_content(course_obj, config)
-    return config, course_content_dict, course_obj
-
-
-app._unparsable_cell(
-    r"""
-    logger.info(f"Extracting html_data for {content_type}")
-    type_config = config_dict["content_types"].get(content_type)
-
-    html_string = getattr(course_content, type_config["html_field"], "")
-    content_name = getattr(
-        course_content,
-        type_config["title_field"],
-        "Untitled",
-    )
-    return html_string, content_name
-    """,
-    name="_"
-)
+    logger.info(course_content_dict)
+    course_files = course_content_dict.get("Files")
+    return config, course_content_dict, course_files, course_id
 
 
 @app.cell
-def _(course_obj):
-    # for content_type_, params in config.get("content_types").items():
-    #     fetch_method = getattr(course_obj, params["method"])
-    #     print(fetch_method)
-    #     print(fetch_method(**params["keyword_params"]))
-    for item_ in course_obj.get_pages(include=["body"]):
-        print(item_)
+def _(course_content_dict):
+    course_content_dict["Pages"][1]
     return
 
 
 @app.cell
-def _(config, course_content_dict, logger):
-    for content_type, course_content in course_content_dict.items():
-        logger.info(f"Extracting html_data for {content_type}")
-        type_config = config["content_types"].get(content_type)
-        print(type_config)
-        for item in course_content:
-            print(item)
-        html_string = getattr(course_content, type_config["html_field"], "")
-        print(html_string)
-    
-        # html_string, content_name = extract_html(
-        #             course_content,
-        #             content_type,
-        #             config,
-        #         )
-        # content_type_a11y_issues = parse_html_content(
-        #     html_string,
-        #     course_id,
-        #     content_type,
-        #     content_name,
-        #     "URL_PLACEHOLDER",
-        # )
+def _(course_files, course_id, parse_course_file_data):
+    course_file_data = parse_course_file_data(course_files, course_id)
+    return
+
+
+@app.cell
+def _(config, course_content_dict):
+    potential_a11y_issues = []
+    getattr(course_content_dict["Pages"][0],"body")
+    type_config = config["content_types"].get("Pages")
+    test = type_config["html_field"]
+    getattr(course_content_dict["Pages"][0],test)
+
+    for item in course_content_dict["Pages"]:
+        print(item.__dict__)
+        print(getattr(item,test))
+
+    #     logger.info(f"Extracting html_data for {content_type}")
+    #     type_config = config_dict["content_types"].get(content_type)
+    #     if not type_config:
+    #         error_message = f"Unknown content type: {content_type}"
+    #         raise ValueError(error_message)
+
+    #     html_string = getattr(course_content, type_config["html_field"], "")
+    #     content_name = getattr(
+    #         course_content,
+    #         type_config["title_field"],
+    #         "Untitled",
+    #     )
+    #     return html_string, content_name
+
+
+    # for content_type, course_content in course_content_dict.items():
+    #     if content_type != "Files":
+    #         html_string, content_name = extract_html(
+    #             course_content, content_type, config
+    #         )
+    #         content_type_a11y_issues = parse_html_content(
+    #             html_string,
+    #             course_id,
+    #             content_type,
+    #             content_name,
+    #             "URL_PLACEHOLDER",
+    #         )
+    #         potential_a11y_issues.extend(content_type_a11y_issues)
+    # potential_a11y_issues
     return
 
 
