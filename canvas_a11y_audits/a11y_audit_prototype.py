@@ -103,7 +103,7 @@ def _():
     course_content_dict = fetch_course_content(course_obj, config)
     logger.info(course_content_dict)
     course_files = course_content_dict.get("Files")
-    return course_files, course_id, course_obj
+    return config, course_files, course_id, course_obj
 
 
 @app.cell(column=1, hide_code=True)
@@ -387,8 +387,33 @@ def fetch_urls(course_content, content_type, config_dict):
     return getattr(course_content,url_attribute,"URL not found")
 
 
+@app.function
+def simplify_content_type(raw_content_type, config_dict):
+    """
+    Convert a raw_content_type string (typically a full MIME class) into a more concise, human-readable format.
+    """
+    type_mapping = config_dict.get("simple_content_types")
+    if not raw_content_type:
+        return "N/A"
+    for key in type_mapping.keys():
+        if key in raw_content_type.lower():
+            return type_mapping[key]
+    if raw_content_type.startswith("application/"):
+        return(
+            raw_content_type.split('/')[-1]
+                .replace('.', ' ')
+                .replace('-', ' ')
+                .title()
+            + " File"
+        )
+    return f"{raw_content_type}: Could not identify content type."
+
+
 @app.cell
-def _():
+def _(config, course_files):
+    for f in course_files:
+        raw_type = getattr(f,"content-type")
+        print(f"{raw_type} becomes:\n\t {simplify_content_type(raw_type, config)}")
     return
 
 
@@ -613,6 +638,125 @@ def _(Assignments, Discussions, Pages):
     ('published_field', 'published')
     ('attachments_field', 'attachments')
     ('keyword_params', {})
+    return
+
+
+@app.cell
+def _(
+    clean_ally_df,
+    create_ally_df,
+    create_canvas_data_df,
+    get_ally_report,
+    join_data_sources,
+    save_as_csv,
+):
+    def main(
+        config_path: Path = CONFIG_FILE,
+        storage_file_path: str | Path = f"accessibility_review_{RUN_ID}.csv",
+    ) -> str:
+        """
+        Orchestrates the process of extracting, cleaning, and saving course data.
+
+        Accessibility data is pulled from Ally course report via the reports
+        dashboard, and requires Institutional ID, Course ID, plus Ally Key & Secret.
+        Canvas data is pulled from the Canvas API, and requires Institutional ID,
+        Course ID, Canvas API Access Token, plus course design privileges for course.
+
+        Parameters
+        ----------
+        config_path : Path, optional
+            Path object pointing to the config file.
+            By default, CONFIG_FILE
+        storage_file_path : str | Path, optional
+            String or Path object pointing to the config file.
+            By default, f"accessibility_review_{RUN_ID}.csv"
+
+        Returns
+        -------
+        str
+            Message telling you whether or not the process succeeded.
+        """
+        logger.info("Starting program...")
+
+        config = load_config(config_path)
+        course_id = config.get("course_id")
+
+        course_obj = initialize_canvas_course(config, course_id)
+        logger.info(course_obj)
+        course_content_dict = fetch_course_content(course_obj, config)
+        logger.info(course_content_dict)
+        course_files = course_content_dict.get("Files")
+        course_file_data = parse_course_file_data(course_files, course_id, config)
+        #------------------------
+        #
+        #
+        #
+        #------------------------
+        potential_a11y_issues = []
+        for content_type, course_content in course_content_dict.items():
+            url = "URL not found"
+            if content_type == "Pages":
+                base_url = f"https://boisestatecanvas.instructure.com/courses/{course_id}/pages/"
+                for item in course_content:
+                    url = base_url + fetch_urls(item, content_type, config)
+                    logger.debug(f"URL: {url}")
+                    if content_type != "Files":
+                        html_data_dict = extract_html(
+                            course_content,
+                            content_type,
+                            config,
+                        )
+                        for name, html_string in html_data_dict.items():
+                            cleaned_name = re.sub(r"_suffix_.*", "", name)
+                            content_type_a11y_issues = parse_html_content(
+                                html_string,
+                                course_id,
+                                content_type,
+                                cleaned_name,
+                                url,
+                            )
+                            potential_a11y_issues.extend(content_type_a11y_issues)
+            elif content_type in ["Assignments", "Discussions"]:
+                for item in course_content:
+                    url = fetch_urls(item, content_type, config)
+                    logger.debug(f"URL: {url}")
+                    if content_type != "Files":
+                        html_data_dict = extract_html(
+                            course_content,
+                            content_type,
+                            config,
+                        )
+                        for name, html_string in html_data_dict.items():
+                            cleaned_name = re.sub(r"_suffix_.*", "", name)
+                            content_type_a11y_issues = parse_html_content(
+                                html_string,
+                                course_id,
+                                content_type,
+                                cleaned_name,
+                                url,
+                            )
+                            potential_a11y_issues.extend(content_type_a11y_issues)
+
+        canvas_df = create_canvas_data_df(
+            course_file_data,
+            potential_a11y_issues,
+        )
+
+        try:
+            ally_csv_path = get_ally_report(course_id, config)
+        except Exception as e:
+            error_message = "Process failed during Ally report download."
+            logger.error(f"{error_message}: {e}")
+            return error_message
+        ally_df = create_ally_df(
+            ally_csv_path,
+        ).pipe(clean_ally_df, config_dict=config)
+
+        joint_df = join_data_sources(canvas_df, ally_df)
+        save_as_csv(joint_df, storage_file_path)
+        success_message = f"Congratulations! Accessibility Review File created: {storage_file_path}!"
+        logger.success(success_message)
+        return success_message
     return
 
 
