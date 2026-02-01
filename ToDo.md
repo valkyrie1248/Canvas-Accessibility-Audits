@@ -18,3 +18,4 @@
 - Refactor: Consider separating into modules: Canvas DF, Ally DF, Main
 - Learn about iframe in Canvas and decide whether to include it.
 - Refactor: Adjust parse_html_content to use fewer parameters
+- Ensure display names from Canvas scraping align with display names from Ally data.

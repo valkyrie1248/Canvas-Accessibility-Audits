@@ -23,6 +23,7 @@ different programs; see section 13 for the specific requirements.
 """
 
 import os
+import re
 import sys
 import time
 import tomllib
@@ -232,15 +233,19 @@ def parse_course_file_data(
     course_file_data = [
         {
             "course_id": course_id,
-            "audit_status": "New Content",
-            "content-type": "File",
+            "audit_status": "Not Yet Started",
+            "content-type": file.__dict__.get(
+                "content-type",
+            ),  # Could this go to Mime_type and have simplified type here?
             "display_name": file.__dict__.get("display_name"),
             "url": file.__dict__.get("url"),
-            "reason_extracted": file.__dict__.get("content-type"),
-            "canvas_flags": "See Ally",
-            "canvas_details": "See Ally",
-            "alt_text": "N/A",
+            "reason_extracted": "File",  # This could be a mapping based on content-type
+            "canvas_flags": "See Ally",  # This is useless. Consider renaming column.
+            "canvas_details": f"Stored in folder: {file.__dict__.get('folder_id')}",  # This is useless. Consider renaming column.
+            "alt_text": "N/A for raw files.",
             "run_id": RUN_ID,
+            "hidden?": file.__dict__.get("hidden"),
+            "published?": "??",  # Check this out
         }
         for file in course_files
     ]
@@ -248,6 +253,17 @@ def parse_course_file_data(
     for i, item in enumerate(course_file_data):
         logger.debug(f"Index {i}: {item}")
     return course_file_data
+
+
+@logger.catch()
+def fetch_urls(course_content, content_type, config_dict):
+    logger.info(f"Fetching urls for {content_type}")
+    type_config = config_dict["content_types"].get(content_type)
+    if not type_config:
+        error_message = f"Unknown content type: {content_type}"
+        raise ValueError(error_message)
+    url_attribute = type_config["url_field"]
+    return getattr(course_content, url_attribute, "URL not found")
 
 
 @logger.catch()
@@ -261,19 +277,21 @@ def extract_html(course_content, content_type: str, config_dict: dict) -> str:
     ----------
     course_content:
         Packaged data from the course site returned by fetch_course_content
+
     content_type: str
         String alias for the content type you want to fetch. Acceptable inputs:
         - 'pages'
         - 'assignments'
         - 'discussions'
         - 'quizzes'
+
     config_dict: dict
         Dictionary containing all rules, equivalencies, and settings
 
     Returns
     -------
-    html_string: str
-        Raw HTML data for the content
+    html_data_dict: dict[str,str]
+        Dictionary containing title and raw html string.
 
     Raises
     ------
@@ -287,12 +305,12 @@ def extract_html(course_content, content_type: str, config_dict: dict) -> str:
         raise ValueError(error_message)
     html_data_dict = {}
     html_attribute = type_config["html_field"]
+    name_attribute = type_config["title_field"]
     for item in course_content:
         html_string = getattr(item, html_attribute)
         content_name = getattr(
-            course_content,
-            type_config["title_field"],
-            "Untitled",
+            item,
+            name_attribute,
         )
         new_key = content_name
         suffix = 0
@@ -350,15 +368,17 @@ def parse_html_content(
         potential_a11y_issues.append(
             {
                 "course_id": course_id,
-                "audit_status": "New Content",
-                "content-type": content_type,
-                "display_name": content_name,
-                "url": link_url,
-                "reason_extracted": "Link",
-                "canvas_flags": None,
+                "audit_status": "Not Yet Started",
+                "content-type": f"Link found in {content_type}",
+                "display_name": content_name,  # Make sure this is the same as will show up in ally data
+                "url": content_url,
+                "reason_extracted": "Link",  # This doesn't give more useful information
+                "canvas_flags": "Check link for descriptive text and functional link. Note: may link to an inaccessible resource. Encourage faculty to check.",
                 "canvas_details": f"Link to: {link_url} (Link text: '{link_text}')",
                 "alt_text": "N/A",
                 "run_id": RUN_ID,
+                # "hidden?": file.__dict__.get("hidden"),
+                # "published?": file.__dict__.get("published"),
             },
         )
 
@@ -371,21 +391,23 @@ def parse_html_content(
             issue = "Image With Empty Alt Text"
         else:
             issue = "Check Quality of Alt Text"
-            logger.info(
-                f"Alt text found for {content_name}. May want to check quality of alt text.",
+            logger.debug(
+                f"Alt text found for {content_name}. Check quality of alt text.",
             )
         potential_a11y_issues.append(
             {
                 "course_id": course_id,
-                "audit_status": "New Content",
-                "content-type": content_type,
-                "display_name": content_name,
+                "audit_status": "Not Yet Started",
+                "content-type": f"Link found in {content_type}",
+                "display_name": content_name,  # Change
                 "url": content_url,
-                "reason_extracted": "Image",
+                "reason_extracted": "Image",  # Change
                 "canvas_flags": issue,
                 "canvas_details": f"Image source: {img_src}",
                 "alt_text": alt_text,
                 "run_id": RUN_ID,
+                # "hidden?": file.__dict__.get("hidden"),
+                # "published?": file.__dict__.get("published"),
             },
         )
 
@@ -393,15 +415,17 @@ def parse_html_content(
         potential_a11y_issues.append(
             {
                 "course_id": course_id,
-                "audit_status": "New Content",
+                "audit_status": "Not Yet Started",  # Change
                 "content-type": content_type,
-                "display_name": content_name,
+                "display_name": content_name,  # Change
                 "url": content_url,
                 "reason_extracted": "Embedded Media (Video)",
                 "canvas_flags": "May require manual caption check",
-                "canvas_details": f"May require manual caption check {iframe['src']}",
+                "canvas_details": f"Video source: {iframe['src']}",
                 "alt_text": "N/A",
                 "run_id": RUN_ID,
+                # "hidden?": file.__dict__.get("hidden"),
+                # "published?": file.__dict__.get("published"),
             },
         )
 
@@ -409,15 +433,17 @@ def parse_html_content(
         potential_a11y_issues.append(
             {
                 "course_id": course_id,
-                "audit_status": "New Content",
+                "audit_status": "Not Yet Started",  # Change
                 "content-type": content_type,
-                "display_name": content_name,
+                "display_name": content_name,  # Change
                 "url": content_url,
                 "reason_extracted": "Embedded Media (Video)",
                 "canvas_flags": "May require manual caption check",
-                "canvas_details": f"May require manual caption check {video_tag['src']}",
+                "canvas_details": f"Video source: {video_tag['src']}",
                 "alt_text": "N/A",
                 "run_id": RUN_ID,
+                # "hidden?": file.__dict__.get("hidden"),
+                # "published?": file.__dict__.get("published"),
             },
         )
 
@@ -425,15 +451,17 @@ def parse_html_content(
         potential_a11y_issues.append(
             {
                 "course_id": course_id,
-                "audit_status": "New Content",
+                "audit_status": "Not Yet Started",  # Change
                 "content-type": content_type,
-                "display_name": content_name,
+                "display_name": content_name,  # Change
                 "url": content_url,
                 "reason_extracted": "Embedded Media (Audio)",
-                "canvas_flags": "May require manual caption check",
-                "canvas_details": f"May require manual transcript check {audio_tag['src']}",
+                "canvas_flags": "May require manual transcript check",
+                "canvas_details": f"Audio source: {audio_tag['src']}",
                 "alt_text": "N/A",
                 "run_id": RUN_ID,
+                # "hidden?": file.__dict__.get("hidden"),
+                # "published?": file.__dict__.get("published"),
             },
         )
     logger.debug(len(potential_a11y_issues))
@@ -495,11 +523,11 @@ def get_ally_session_cookie(config_dict: dict) -> str:
         page.click('button[type="submit"]')
 
         # 3. Wait/Poll for Cookie
-        # Loop for up to 10 seconds checking for the cookie
+        # Loop for up to 30 seconds checking for the cookie
         ally_cookie = None
         logger.info("Waiting for session cookie...")
 
-        for _ in range(10):
+        for _ in range(30):
             cookies = context.cookies()
             ally_cookie = next(
                 (c for c in cookies if "ally.ac" in c["domain"] and "session" in c["name"]),
@@ -930,19 +958,27 @@ def main(
 
     potential_a11y_issues = []
     for content_type, course_content in course_content_dict.items():
+        url = "URL_PLACEHOLDER"
+        if content_type == "Pages":
+            logger.info(content_type)
+            base_url = f"https://boisestatecanvas.instructure.com/courses/{course_id}/pages/"
+            for item in course_content:
+                url = base_url + fetch_urls(item, content_type, config)
+                logger.debug(f"URL: {url}")
         if content_type != "Files":
             html_data_dict = extract_html(
                 course_content,
                 content_type,
                 config,
             )
-            for content_name, html_string in html_data_dict.items():
+            for name, html_string in html_data_dict.items():
+                cleaned_name = re.sub(r"_suffix_.*", "", name)
                 content_type_a11y_issues = parse_html_content(
                     html_string,
                     course_id,
                     content_type,
-                    content_name,
-                    "URL_PLACEHOLDER",
+                    cleaned_name,
+                    url,
                 )
                 potential_a11y_issues.extend(content_type_a11y_issues)
     canvas_df = create_canvas_data_df(

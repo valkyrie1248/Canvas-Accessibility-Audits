@@ -27,3 +27,5 @@ audit_script_EXAMPLE.py
 
 # Marimo Prototyping
 canvas_a11y_audits/Accessibility_Checklist_mvp.py
+canvas_a11y_audits/accessibility_checklist_prototype.py
+.gitignore
