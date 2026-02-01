@@ -958,13 +958,17 @@ def main(
 
     potential_a11y_issues = []
     for content_type, course_content in course_content_dict.items():
-        url = "URL_PLACEHOLDER"
+        url = "URL not found"
         if content_type == "Pages":
-            logger.info(content_type)
             base_url = f"https://boisestatecanvas.instructure.com/courses/{course_id}/pages/"
             for item in course_content:
                 url = base_url + fetch_urls(item, content_type, config)
                 logger.debug(f"URL: {url}")
+        elif content_type in ["Assignments", "Discussions"]:
+            for item in course_content:
+                url = fetch_urls(item, content_type, config)
+                logger.debug(f"URL: {url}")
+
         if content_type != "Files":
             html_data_dict = extract_html(
                 course_content,

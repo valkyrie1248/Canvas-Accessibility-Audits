@@ -103,7 +103,7 @@ def _():
     course_content_dict = fetch_course_content(course_obj, config)
     logger.info(course_content_dict)
     course_files = course_content_dict.get("Files")
-    return course_content_dict, course_files, course_id
+    return course_files, course_id, course_obj
 
 
 @app.cell(column=1, hide_code=True)
@@ -388,9 +388,13 @@ def fetch_urls(course_content, content_type, config_dict):
 
 
 @app.cell
-def _(course_content_dict):
-    course_content_dict["Pages"][1]
+def _():
+    return
 
+
+@app.cell
+def _(course_obj):
+    course_obj.__dict__
     return
 
 
