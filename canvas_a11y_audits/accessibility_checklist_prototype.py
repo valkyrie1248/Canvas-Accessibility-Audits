@@ -23,7 +23,6 @@ different programs; see section 13 for the specific requirements.
 """
 
 import os
-import re
 import sys
 import time
 import tomllib
@@ -209,9 +208,33 @@ def fetch_course_content(course: Course, config_dict: dict) -> dict:
 
 
 @logger.catch()
+def simplify_content_type(raw_content_type: str, config_dict: dict) -> str:
+    """Convert a raw_content_type string into a more concise, human-readable format."""
+    type_mapping = config_dict.get("simple_content_types")
+    if not raw_content_type:
+        logger.info("No content type found.")
+        return "N/A"
+    for key in type_mapping:
+        if key in raw_content_type.lower():
+            return type_mapping[key]
+    if raw_content_type.startswith("application/"):
+        return (
+            raw_content_type.rsplit("/", maxsplit=1)[-1]
+            .replace(".", " ")
+            .replace("-", " ")
+            .title()
+            + " File"
+        )
+    failure_message = f"{raw_content_type}: Could not identify content type."
+    logger.info(failure_message)
+    return failure_message
+
+
+@logger.catch()
 def parse_course_file_data(
     course_files: PaginatedList[File],
     course_id: str,
+    config_dict: dict,
 ) -> list[dict[str, str]]:
     """Extract and organize important data about course files.
 
@@ -234,9 +257,7 @@ def parse_course_file_data(
         {
             "course_id": course_id,
             "audit_status": "Not Yet Started",
-            "content_type": file.__dict__.get(
-                "content-type",
-            ),  # Could this go to Mime_type and have simplified type here?
+            "content_type": simplify_content_type(file.__dict__.get("content-type"), config_dict),
             "display_name": file.__dict__.get("display_name"),
             "url": file.__dict__.get("url"),
             "reason_extracted": "File",  # This could be a mapping based on content_type
@@ -256,18 +277,18 @@ def parse_course_file_data(
 
 
 @logger.catch()
-def fetch_urls(course_content, content_type, config_dict):
-    logger.info(f"Fetching urls for {content_type}")
+def fetch_url(course_content_item, content_type, config_dict):
+    logger.info(f"Fetching url for {course_content_item}")
     type_config = config_dict["content_types"].get(content_type)
     if not type_config:
         error_message = f"Unknown content type: {content_type}"
         raise ValueError(error_message)
     url_attribute = type_config["url_field"]
-    return getattr(course_content, url_attribute, "URL not found")
+    return getattr(course_content_item, url_attribute, "URL not found")
 
 
 @logger.catch()
-def extract_html(course_content, content_type: str, config_dict: dict) -> str:
+def extract_html(course_content_item, content_type: str, config_dict: dict) -> tuple[str, str]:
     """
     Extract HTML data from course content object for scraping.
 
@@ -275,8 +296,8 @@ def extract_html(course_content, content_type: str, config_dict: dict) -> str:
 
     Parameters
     ----------
-    course_content:
-        Packaged data from the course site returned by fetch_course_content
+    course_content_item:
+        Single item in course_content PaginatedList returned by fetch_course_content
 
     content_type: str
         String alias for the content type you want to fetch. Acceptable inputs:
@@ -290,8 +311,8 @@ def extract_html(course_content, content_type: str, config_dict: dict) -> str:
 
     Returns
     -------
-    html_data_dict: dict[str,str]
-        Dictionary containing title and raw html string.
+    html_data: tuple[str,str]
+        Tuple containing title and raw html string.
 
     Raises
     ------
@@ -303,22 +324,11 @@ def extract_html(course_content, content_type: str, config_dict: dict) -> str:
     if not type_config:
         error_message = f"Unknown content type: {content_type}"
         raise ValueError(error_message)
-    html_data_dict = {}
     html_attribute = type_config["html_field"]
     name_attribute = type_config["title_field"]
-    for item in course_content:
-        html_string = getattr(item, html_attribute)
-        content_name = getattr(
-            item,
-            name_attribute,
-        )
-        new_key = content_name
-        suffix = 0
-        while new_key in html_data_dict:
-            new_key = f"{content_name}_suffix_{suffix}"
-            suffix += 1
-        html_data_dict[new_key] = html_string
-    return html_data_dict
+    html_string = getattr(course_content_item, html_attribute)
+    content_name = getattr(course_content_item, name_attribute)
+    return (content_name, html_string)
 
 
 @logger.catch()
@@ -398,7 +408,7 @@ def parse_html_content(
             {
                 "course_id": course_id,
                 "audit_status": "Not Yet Started",
-                "content_type": f"Link found in {content_type}",
+                "content_type": f"Image found in {content_type}",
                 "display_name": content_name,  # Change
                 "url": content_url,
                 "reason_extracted": "Image",  # Change
@@ -416,7 +426,7 @@ def parse_html_content(
             {
                 "course_id": course_id,
                 "audit_status": "Not Yet Started",  # Change
-                "content_type": content_type,
+                "content_type": f"Video found in {content_type}",
                 "display_name": content_name,  # Change
                 "url": content_url,
                 "reason_extracted": "Embedded Media (Video)",
@@ -434,7 +444,7 @@ def parse_html_content(
             {
                 "course_id": course_id,
                 "audit_status": "Not Yet Started",  # Change
-                "content_type": content_type,
+                "content_type": f"Video found in {content_type}",
                 "display_name": content_name,  # Change
                 "url": content_url,
                 "reason_extracted": "Embedded Media (Video)",
@@ -452,7 +462,7 @@ def parse_html_content(
             {
                 "course_id": course_id,
                 "audit_status": "Not Yet Started",  # Change
-                "content_type": content_type,
+                "content_type": f"Audio found in {content_type}",
                 "display_name": content_name,  # Change
                 "url": content_url,
                 "reason_extracted": "Embedded Media (Audio)",
@@ -954,37 +964,44 @@ def main(
     course_content_dict = fetch_course_content(course_obj, config)
     logger.info(course_content_dict)
     course_files = course_content_dict.get("Files")
-    course_file_data = parse_course_file_data(course_files, course_id)
+    course_file_data = parse_course_file_data(course_files, course_id, config)
 
     potential_a11y_issues = []
     for content_type, course_content in course_content_dict.items():
         url = "URL not found"
         if content_type == "Pages":
             base_url = f"https://boisestatecanvas.instructure.com/courses/{course_id}/pages/"
-            for item in course_content:
-                url = base_url + fetch_urls(item, content_type, config)
-                logger.debug(f"URL: {url}")
-        elif content_type in ["Assignments", "Discussions"]:
-            for item in course_content:
-                url = fetch_urls(item, content_type, config)
+            for item in course_content:  # For each page in Pages
+                # Figure out URL
+                url = base_url + fetch_url(item, content_type, config)
                 logger.debug(f"URL: {url}")
 
-        if content_type != "Files":
-            html_data_dict = extract_html(
-                course_content,
-                content_type,
-                config,
-            )
-            for name, html_string in html_data_dict.items():
-                cleaned_name = re.sub(r"_suffix_.*", "", name)
+                # Extract html data
+                name, html_string = extract_html(item, content_type, config)
+
+                # Parse html data
                 content_type_a11y_issues = parse_html_content(
                     html_string,
                     course_id,
                     content_type,
-                    cleaned_name,
+                    name,
                     url,
                 )
                 potential_a11y_issues.extend(content_type_a11y_issues)
+        elif content_type in {"Assignments", "Discussions"}:
+            for item in course_content:
+                url = fetch_url(item, content_type, config)
+                logger.debug(f"URL: {url}")
+                name, html_string = extract_html(item, content_type, config)
+                content_type_a11y_issues = parse_html_content(
+                    html_string,
+                    course_id,
+                    content_type,
+                    name,
+                    url,
+                )
+                potential_a11y_issues.extend(content_type_a11y_issues)
+
     canvas_df = create_canvas_data_df(
         course_file_data,
         potential_a11y_issues,

@@ -1,4 +1,4 @@
-course_id = "44160"
+course_id = "41439"
 
 [canvas]
 url = "https://boisestatecanvas.instructure.com/"
@@ -46,20 +46,18 @@ drop_columns = [
     "category"
 ]
 
-# [content_types]
-# "wordprocessingml.document" = "Word Document"
-# "spreadsheetml.sheet" = "Excel Spreadsheet"
-# "presentationml.presentation" = "PowerPoint Presentation"
-# "application/pdf" = "PDF Document"
-# "text/html" = "HTML Document"
-# "application/zip" = "ZIP Archive"
-# "application/x-zip-compressed" = "ZIP Archive"
-# full_mime_type.startswith("image/") = "Image"
-# full_mime_type.startswith("audio/") = "Audio"
-# full_mime_type.startswith("video/") = "Video"
-# full_mime_type.startswith("text/") = "Text Document"
-# full_mime_type.startswith("application/"):
-#         return full_mime_type.split('/')[-1].replace('.', ' ').replace('-', ' ').title() + " File"
+[simple_content_types]
+'wordprocessingml.document' = "Word Document"
+'spreadsheetml.sheet' = "Excel Spreadsheet"
+'presentationml.presentation' = "PowerPoint Presentation"
+'application/pdf' = "PDF Document"
+'text/html' = "HTML Document"
+'application/zip' = "ZIP Archive"
+'application/x-zip-compressed' = "ZIP Archive"
+'audio/' = "Audio"
+'video/' = "Video"
+'image/' = "Image"
+'text/' = "Text Document"
 
 
 [content_types]
@@ -86,7 +84,7 @@ keyword_params = { include = ["body"] } # TOML supports inline dictionaries!
 method = "get_files"
 html_field = "N/A"
 title_field = "display_name"
-file_type_field = "content_type"
+file_type_field = "content-type"
 mime_type_field = "mime_class"
 url_field = "url"
 id_field = "id"

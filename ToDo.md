@@ -15,8 +15,10 @@
 - Chore: Send log file to a specific folder
 - Feat: Change output name to accessibility*review*{course number}
   - Feat: place in: path / "{department*prefix}" / "{course name}*{course_number}"
-- Build: Update pyproject.toml
+- Build/Refactor: Consider reducing dependencies, Update pyproject.toml
 - Refactor: Consider separating into modules: Canvas DF, Ally DF, Main
+- Feat: Add Cidiscapes data coverage
 - Learn about iframe in Canvas and decide whether to include it.
 - Refactor: Adjust parse_html_content to use fewer parameters
-- Ensure display names from Canvas scraping align with display names from Ally data.
+- Fix: Ensure display names from Canvas scraping align with display names from Ally data.
+- Feat: Add simple content_type mapping
