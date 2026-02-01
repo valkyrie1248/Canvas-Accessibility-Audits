@@ -234,12 +234,12 @@ def parse_course_file_data(
         {
             "course_id": course_id,
             "audit_status": "Not Yet Started",
-            "content-type": file.__dict__.get(
+            "content_type": file.__dict__.get(
                 "content-type",
             ),  # Could this go to Mime_type and have simplified type here?
             "display_name": file.__dict__.get("display_name"),
             "url": file.__dict__.get("url"),
-            "reason_extracted": "File",  # This could be a mapping based on content-type
+            "reason_extracted": "File",  # This could be a mapping based on content_type
             "canvas_flags": "See Ally",  # This is useless. Consider renaming column.
             "canvas_details": f"Stored in folder: {file.__dict__.get('folder_id')}",  # This is useless. Consider renaming column.
             "alt_text": "N/A for raw files.",
@@ -369,7 +369,7 @@ def parse_html_content(
             {
                 "course_id": course_id,
                 "audit_status": "Not Yet Started",
-                "content-type": f"Link found in {content_type}",
+                "content_type": f"Link found in {content_type}",
                 "display_name": content_name,  # Make sure this is the same as will show up in ally data
                 "url": content_url,
                 "reason_extracted": "Link",  # This doesn't give more useful information
@@ -398,7 +398,7 @@ def parse_html_content(
             {
                 "course_id": course_id,
                 "audit_status": "Not Yet Started",
-                "content-type": f"Link found in {content_type}",
+                "content_type": f"Link found in {content_type}",
                 "display_name": content_name,  # Change
                 "url": content_url,
                 "reason_extracted": "Image",  # Change
@@ -416,7 +416,7 @@ def parse_html_content(
             {
                 "course_id": course_id,
                 "audit_status": "Not Yet Started",  # Change
-                "content-type": content_type,
+                "content_type": content_type,
                 "display_name": content_name,  # Change
                 "url": content_url,
                 "reason_extracted": "Embedded Media (Video)",
@@ -434,7 +434,7 @@ def parse_html_content(
             {
                 "course_id": course_id,
                 "audit_status": "Not Yet Started",  # Change
-                "content-type": content_type,
+                "content_type": content_type,
                 "display_name": content_name,  # Change
                 "url": content_url,
                 "reason_extracted": "Embedded Media (Video)",
@@ -452,7 +452,7 @@ def parse_html_content(
             {
                 "course_id": course_id,
                 "audit_status": "Not Yet Started",  # Change
-                "content-type": content_type,
+                "content_type": content_type,
                 "display_name": content_name,  # Change
                 "url": content_url,
                 "reason_extracted": "Embedded Media (Audio)",

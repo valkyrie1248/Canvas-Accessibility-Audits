@@ -11,7 +11,8 @@
     - Fix: Figure out how to get the urls in there.
 - Refactor/Perf: graphql interface?
 - Feat: Add pydantic data validation
-- Chore: Clean up logging outputs.
+- Chore: Clean up logging outputs
+- Chore: Send log file to a specific folder
 - Feat: Change output name to accessibility*review*{course number}
   - Feat: place in: path / "{department*prefix}" / "{course name}*{course_number}"
 - Build: Update pyproject.toml
