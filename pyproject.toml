@@ -19,7 +19,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "marimo>=0.19.2",
+    "marimo>=0.23.9",
     "pandas-stubs>=2.3.3.251219",
     "python-dotenv>=1.2.1",
 ]
